@@ -3,6 +3,7 @@ import tempfile
 from fpdf import FPDF
 from pathlib import Path
 from PIL import Image
+from pypdf import PdfReader, PdfWriter
 
 def generate_pdf(files, output_path):
     pdf = FPDF()
