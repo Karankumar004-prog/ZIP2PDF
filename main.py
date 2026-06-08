@@ -1,5 +1,5 @@
-# main.py
 import sys
+import shutil
 import tempfile
 import webbrowser
 from pathlib import Path
@@ -41,9 +41,16 @@ except ImportError:
 
 
 class Zip2PDF(QWidget):
-    """
-    Main Application Window: Combines Drag-Drop, Import, Merge, and Undo/Redo.
-    """
+    # ... existing __init__ and other methods ...
+
+    def closeEvent(self, event):
+        """Triggered automatically when the user closes the window."""
+        if hasattr(self, 'temp') and self.temp.exists():
+            try:
+                shutil.rmtree(self.temp, ignore_errors=True)
+            except Exception as e:
+                print(f"Failed to clean up temp directory: {e}")
+        event.accept()
 
     def __init__(self):
         super().__init__()
@@ -149,9 +156,18 @@ class Zip2PDF(QWidget):
 
     def dragEnterEvent(self, event):
         if event.mimeData().hasUrls():
+            # Highlight the listbox when dragging over it
+            self.listbox.setStyleSheet("border: 2px dashed #4CAF50; background-color: #f0fdf4;")
             event.acceptProposedAction()
 
+    def dragLeaveEvent(self, event):
+        # Remove highlight when cursor leaves
+        self.listbox.setStyleSheet("")
+
     def dropEvent(self, event):
+        # Remove highlight on drop
+        self.listbox.setStyleSheet("")
+        
         paths = [Path(u.toLocalFile()) for u in event.mimeData().urls()]
         if paths:
             self.save_state()
@@ -198,7 +214,7 @@ class Zip2PDF(QWidget):
                 return
 
         # 🔹 2️⃣ ARCHIVES WITH EXTENSION (.zip / .7z)
-        if name.endswith(SUPPORTED_ARCHIVES):
+        if path.suffix.lower() in SUPPORTED_ARCHIVES:
             try:
                 extract_archive(str(path), self.temp)
                 self.scan_temp_folder()
