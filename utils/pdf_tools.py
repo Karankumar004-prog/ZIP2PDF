@@ -1,11 +1,22 @@
+# utils/pdf_tools.py
 import os
 import tempfile
 from fpdf import FPDF
 from pathlib import Path
 from PIL import Image
+
+# Use pypdf instead of the deprecated PyPDF2
 from pypdf import PdfReader, PdfWriter
 
+# This is the constant that was missing!
+VALID_PAGE_FILES = (".jpg", ".jpeg", ".png", ".webp", ".txt")
+
+
 def generate_pdf(files, output_path):
+    """
+    Create a PDF file from a list of file paths.
+    Includes A4 boundary limits and safe temporary file handling.
+    """
     pdf = FPDF()
     pdf.set_auto_page_break(auto=True, margin=10)
 
@@ -13,11 +24,12 @@ def generate_pdf(files, output_path):
         f = Path(f)
         ext = f.suffix.lower()
 
+        # Image pages (including WEBP)
         if ext in (".jpg", ".jpeg", ".png", ".webp"):
             pdf.add_page()
             img = Image.open(f).convert("RGB")
             
-            # FIX 1: Create a safe, temporary file that won't overwrite user data
+            # Create a safe, temporary file that won't overwrite user data
             fd, temp_img_path = tempfile.mkstemp(suffix=".jpg")
             os.close(fd) # Close file descriptor so PIL can write to it
             img.save(temp_img_path, format="JPEG")
@@ -25,7 +37,7 @@ def generate_pdf(files, output_path):
             w, h = img.size
             aspect = h / w
             
-            # FIX 4: Prevent images from overflowing A4 dimensions (210x297mm)
+            # Prevent images from overflowing A4 dimensions (210x297mm)
             calc_w = 190 # Max width with 10mm margins
             calc_h = 190 * aspect
             
@@ -40,6 +52,7 @@ def generate_pdf(files, output_path):
             # Clean up the temporary image immediately
             os.remove(temp_img_path)
 
+        # Text pages
         elif ext == ".txt":
             pdf.add_page()
             pdf.set_font("Arial", size=12)
@@ -48,6 +61,7 @@ def generate_pdf(files, output_path):
                 pdf.multi_cell(0, 10, content)
 
     pdf.output(output_path)
+
 
 def merge_pdfs(input_pdfs, output_path):
     """
