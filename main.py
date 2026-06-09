@@ -830,6 +830,93 @@ class SmoothListWidget(QListWidget):
         self.setSelectionMode(QListWidget.ExtendedSelection)
         self.setVerticalScrollMode(QListWidget.ScrollPerPixel)
         self.setUniformItemSizes(True) 
+        self.setAutoScroll(False) # We completely override native clunky scroll
+
+        self.scroll_timer = QTimer(self)
+        self.scroll_timer.timeout.connect(self.force_auto_scroll)
+
+    def dragMoveEvent(self, event):
+        super().dragMoveEvent(event)
+        # Just ensure the timer is running; the timer handles the exact math
+        if not self.scroll_timer.isActive():
+            self.scroll_timer.start(16) # 60 FPS
+
+    def dropEvent(self, event):
+        super().dropEvent(event)
+        self.scroll_timer.stop()
+
+    def force_auto_scroll(self):
+        """Dynamically tracks physical mouse position so dragging outside the app still works."""
+        from PyQt5.QtGui import QCursor
+        
+        # Get mouse position relative to the list widget
+        local_pos = self.mapFromGlobal(QCursor.pos())
+        local_y = local_pos.y()
+        local_x = local_pos.x()
+        
+        margin = 40
+        
+        # 1. Stop scrolling if user drags the file far horizontally away from the list
+        if local_x < -100 or local_x > self.width() + 100:
+            self.scroll_timer.stop()
+            return
+
+        # 2. Re-calculate direction dynamically (Fixes the "drag up/down" bug)
+        if local_y < margin:
+            scroll_dir = -1
+        elif local_y > self.height() - margin:
+            scroll_dir = 1
+        else:
+            # Mouse is in the safe middle zone -> stop scrolling
+            self.scroll_timer.stop()
+            return
+            
+        # 3. Apply smooth scroll
+        scrollbar = self.verticalScrollBar()
+        scrollbar.setValue(scrollbar.value() + (scroll_dir * 15))
+
+    def startDrag(self, supportedActions):
+        """Fixes the white card issue and GUARANTEES the scroll loop dies on release."""
+        from PyQt5.QtGui import QDrag, QPixmap, QPainter, QColor, QPen
+        from PyQt5.QtWidgets import QWidget
+        from PyQt5.QtCore import Qt
+        
+        item = self.currentItem()
+        widget = self.itemWidget(item)
+        
+        if widget:
+            pixmap = QPixmap(widget.size())
+            pixmap.fill(QColor("#1A2B2C")) 
+            
+            painter = QPainter(pixmap)
+            painter.setRenderHint(QPainter.Antialiasing)
+            painter.setPen(QPen(QColor("#00ADB5"), 2))
+            painter.drawRoundedRect(1, 1, widget.width() - 2, widget.height() - 2, 6, 6)
+            
+            widget.render(painter, flags=QWidget.DrawChildren)
+            painter.end()
+            
+            drag = QDrag(self)
+            drag.setMimeData(self.mimeData(self.selectedItems()))
+            drag.setPixmap(pixmap)
+            drag.setHotSpot(pixmap.rect().center())
+            
+            # This is a blocking call. It halts code here until the user drops the file.
+            drag.exec_(supportedActions, Qt.MoveAction)
+        else:
+            # Fallback for standard items
+            super().startDrag(supportedActions)
+            
+        # CRITICAL FIX: The absolute second the drag is dropped/released, kill the loop!
+        self.scroll_timer.stop()
+        
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setIconSize(QSize(64, 64))
+        self.setDragDropMode(QListWidget.InternalMove)
+        self.setSelectionMode(QListWidget.ExtendedSelection)
+        self.setVerticalScrollMode(QListWidget.ScrollPerPixel)
+        self.setUniformItemSizes(True) 
         self.setAutoScroll(False) # We will use a custom, forced auto-scroll
 
         # Custom high-speed scroll timer
@@ -864,6 +951,43 @@ class SmoothListWidget(QListWidget):
     def force_auto_scroll(self):
         scrollbar = self.verticalScrollBar()
         scrollbar.setValue(scrollbar.value() + (self.scroll_dir * 15))
+    
+    def startDrag(self, supportedActions):
+        """Fixes the white card issue by forcing a dark background and skipping default OS backgrounds."""
+        from PyQt5.QtGui import QDrag, QPixmap, QPainter, QColor, QPen
+        from PyQt5.QtWidgets import QWidget
+        from PyQt5.QtCore import Qt
+        
+        item = self.currentItem()
+        widget = self.itemWidget(item)
+        
+        if widget:
+            # 1. Create a blank image the exact size of the card
+            pixmap = QPixmap(widget.size())
+            
+            # 2. Fill it with the exact dark "Selected" background color
+            pixmap.fill(QColor("#1A2B2C")) 
+            
+            # 3. Draw the teal border around it
+            painter = QPainter(pixmap)
+            painter.setRenderHint(QPainter.Antialiasing)
+            painter.setPen(QPen(QColor("#00ADB5"), 2))
+            painter.drawRoundedRect(1, 1, widget.width() - 2, widget.height() - 2, 6, 6)
+            
+            # 4. CRITICAL FIX: Only draw the child elements (text, buttons, image).
+            # This stops the OS from injecting that ugly white box!
+            widget.render(painter, flags=QWidget.DrawChildren)
+            painter.end()
+            
+            # 5. Start the drag operation with our perfect dark-themed card
+            drag = QDrag(self)
+            drag.setMimeData(self.mimeData(self.selectedItems()))
+            drag.setPixmap(pixmap)
+            drag.setHotSpot(pixmap.rect().center())
+            drag.exec_(supportedActions, Qt.MoveAction)
+        else:
+            # Fallback for standard items
+            super().startDrag(supportedActions)
 
 # ==========================================
 # MODERN OBSIDIAN & TEAL STYLESHEET
