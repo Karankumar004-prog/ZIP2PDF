@@ -2,5 +2,5 @@ pillow
 fpdf2
 natsort
 py7zr
-PyPDF2
+pypdf
 PyQt5
