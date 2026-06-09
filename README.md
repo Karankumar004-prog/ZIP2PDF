@@ -26,12 +26,12 @@ Built with Python and PyQt5, this tool features a custom frameless UI, backgroun
 > *Add your application screenshots to the `assets` folder or directly via GitHub issues/PRs and replace the links below.*
 
 <p align="center">
-  <img src="https://via.placeholder.com/700x400/121212/00ADB5?text=ZIP2PDF+Main+Workspace" width="700" alt="Home Screen"/>
+  <img src="https://github.com/user-attachments/assets/3877f0bf-5cb7-46bb-8d8c-cfbc1c1013ec" width="700" alt="Home Screen"/>
   <br><sub><b>📌 Clean, Frameless Workspace</b></sub>
 </p>
 
 <p align="center">
-  <img src="https://via.placeholder.com/700x400/121212/00ADB5?text=ZIP2PDF+Merge+Tool" width="700" alt="Merge Tool"/>
+  <img src="https://github.com/user-attachments/assets/c20e51e3-8e04-449a-91f0-021e872baaf3" width="700" alt="Merge Tool"/>
   <br><sub><b>🧩 Custom PDF Merge Tool</b></sub>
 </p>
 
