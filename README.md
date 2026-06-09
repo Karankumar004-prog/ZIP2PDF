@@ -48,10 +48,14 @@ cd ZIP2PDF
 ```
 
 ### 2️⃣ Install Dependencies
-```pip install -r requirements.txt```
+```sh
+pip install -r requirements.txt
+```
 
 ### 3️⃣ Run the Application
-```python3 main.py```
+```sh
+python3 main.py
+```
 
 ### Option 2: Build an Executable (PyInstaller)
 To package this application into a standalone .exe (Windows) or binary (Linux) so users do not need to install Python or run terminal commands:
