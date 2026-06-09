@@ -1,71 +1,49 @@
-# ZIP2PDF
-A simple and stable desktop tool to convert ZIP archives (and their contents) to PDF files. Supports images, text files, manual sorting, undo/redo, PDF merging, and WEBP conversion. Built with Python &amp; PyQt5.
-# 📦 ZIP2PDF — Desktop Converter (Final Edition)
+# 📦 ZIP2PDF — Professional Edition
 
-ZIP2PDF is a fast, stable and user-friendly desktop application to convert archive files into formatted PDF documents.  
-Designed for convenience, productivity and cross-platform usage.
+ZIP2PDF is a fast, stable, and beautifully designed desktop application that converts archive files and images into formatted PDF documents. 
 
----
-
-## ✨ Features
-
-| Feature | Status |
-|---------|--------|
-| Convert `.zip` → PDF | ✔️ |
-| Import archives **without extension** | ✔️ Ask & auto-rename |
-| Supports `.jpg .jpeg .png .webp .txt` | ✔️ |
-| Image → PDF with auto resize | ✔️ |
-| Drag & Drop support | ✔️ |
-| Manual sorting (Natural, A-Z, Z-A) | ✔️ Toggle to avoid Wayland spam |
-| Undo / Redo | ✔️ |
-| Delete pages (Delete / Backspace) | ✔️ |
-| PDF Merge Tool | ✔️ |
-| Folder & subfolder import (recursive) | ✔️ |
-| Wayland compatible (Fedora Linux) | ✔️ |
-| 7z Support (Optional, via `py7zr`) | ⚙️ |
+Built with Python and PyQt5, this tool features a custom frameless UI, background multi-threading for heavy processing, and an elegant **Obsidian & Teal** dark theme.
 
 ---
 
+## ✨ Key Features
+
+| Feature | Description | Status |
+|---------|-------------|--------|
+| **Modern Frameless UI** | Custom title bar, rounded corners, and Obsidian & Teal theme. | ✔️ |
+| **Multi-Threaded Engine** | UI never freezes. Heavy extractions and PDF generations run in the background. | ✔️ |
+| **Smart Conversion** | Convert `.zip` files, `.jpg`, `.png`, `.webp`, and `.txt` directly to PDF. | ✔️ |
+| **PDF Merge Tool** | Built-in utility to merge multiple existing PDFs into one. | ✔️ |
+| **Drag & Drop** | Seamlessly drag files and archives directly into the workspace. | ✔️ |
+| **Custom Dialogs** | 100% themed warning pop-ups and custom file explorers. | ✔️ |
+| **Wayland Native** | Fully optimized for modern Linux/Fedora environments. | ✔️ |
+| **Auto-Correction** | Detects extension-less archives and auto-renames them. | ✔️ |
+
+---
 
 ## 🖥️ Screenshots
 
-> *UI is simple and clean — no unnecessary complexity.*
+> *Add your application screenshots to the `assets` folder or directly via GitHub issues/PRs and replace the links below.*
 
 <p align="center">
-  <img src="https://github.com/user-attachments/assets/e98e360c-fb36-49a0-9000-5672d3a20491" width="700" alt="Home Screen"/>
-  <br><sub><b>📌 Home Screen — ZIP2PDF Main Interface</b></sub>
+  <img src="https://via.placeholder.com/700x400/121212/00ADB5?text=ZIP2PDF+Main+Workspace" width="700" alt="Home Screen"/>
+  <br><sub><b>📌 Clean, Frameless Workspace</b></sub>
 </p>
 
 <p align="center">
-  <img src="https://github.com/user-attachments/assets/1021124c-6587-4c1f-9804-fdeda054882f" width="700" alt="Sorting Pages"/>
-  <br><sub><b>🔁 Sort, reorder & manage document pages</b></sub>
+  <img src="https://via.placeholder.com/700x400/121212/00ADB5?text=ZIP2PDF+Merge+Tool" width="700" alt="Merge Tool"/>
+  <br><sub><b>🧩 Custom PDF Merge Tool</b></sub>
 </p>
-
-<p align="center">
-  <img src="https://github.com/user-attachments/assets/137286f8-251c-476a-86b9-c9bb9833b446" width="700" alt="PDF Preview"/>
-  <br><sub><b>👁 PDF Preview before saving or merging</b></sub>
-</p>
-
-
----
-
-## 📁 Supported File Types
-
-| Category | Extensions |
-|----------|-------------|
-| Images | `.jpg`, `.jpeg`, `.png`, `.webp` |
-| Text documents | `.txt` |
-| Archives | `.zip` |
-| No-extension archives | Ask → convert `.zip` |
-| PDFs for merge | `.pdf` |
 
 ---
 
 ## 📥 Installation & Setup
 
-### 1️⃣ Clone the Repository
+### Option 1: Run from Source
+
+**1. Clone the Repository**
 ```sh
-git clone https://github.com/Karankumar004-prog/ZIP2PDF.git
+git clone [https://github.com/Karankumar004-prog/ZIP2PDF.git](https://github.com/Karankumar004-prog/ZIP2PDF.git)
 cd ZIP2PDF
 ```
 
@@ -75,8 +53,16 @@ cd ZIP2PDF
 ### 3️⃣ Run the Application
 ```python3 main.py```
 
----
+### Option 2: Build an Executable (PyInstaller)
+To package this application into a standalone .exe (Windows) or binary (Linux) so users do not need to install Python or run terminal commands:
 
+```sh
+pip install pyinstaller
+pyinstaller --noconfirm --onedir --windowed --add-data "utils:utils" main.py
+```
+Your runnable application will be generated inside the dist/main folder. You can zip this folder and distribute it to your users.
+
+---
 ### ⚙️ Requirements
 
 - Component	Version
@@ -88,12 +74,12 @@ cd ZIP2PDF
 ```
 ZIP2PDF/
 │
-├── main.py                # Main UI & program
+├── main.py                # Main UI, Threading, and custom Window Logic
 ├── utils/
-│   ├── extractor.py       # ZIP/7z extraction handler
-│   └── pdf_tools.py       # PDF generation & merge
-├── requirements.txt
-└── README.md
+│   ├── extractor.py       # ZIP/7z background extraction handler
+│   └── pdf_tools.py       # pypdf & FPDF generation logic
+├── requirements.txt       # Dependencies
+└── README.md              # Project Documentation
 ```
 
 ## 🎯 How to Use
@@ -110,16 +96,17 @@ ZIP2PDF/
 - Remove page	= Delete / Backspace
 - Undo	= Ctrl + Z
 - Redo	= Ctrl + Y
+- Minimize & Maximize Application = Double Tap Title bar
 - Close App	= Alt + F4
 
 ## ❓ Why This Tool Exists
 
 **Because:**
-- Online converters are slow or insecure
-- PDF editors are expensive
-- Normal users need a simple drag-and-convert app
-- Local tools respect privacy & speed
-- This project solves that. 🚀
+- Online PDF converters are slow, riddled with ads, and compromise your privacy by uploading your sensitive documents to third-party servers.
+
+- Premium PDF editors are unnecessarily expensive for basic document compiling.
+
+- ZIP2PDF processes everything 100% locally on your machine, ensuring maximum speed and total data privacy. 🚀
 
 ## 🌱 Roadmap
 
@@ -131,11 +118,11 @@ ZIP2PDF/
 
 ## 🧑‍💻 Built With
 ```
-Python
-PyQt5
-FPDF
-Pillow (PIL)
-PyPDF2
+Python 3.8+
+PyQt5 - GUI Framework
+FPDF - PDF Generation
+Pillow (PIL) - Image processing
+pypdf - PDF Merging (Modern replacement for PyPDF2)
 natsort
 py7zr (optional)
 ```
@@ -147,7 +134,7 @@ Open issues for bugs, improvements, and features.
 
 ## 📜 License
 
-**This project is licensed under the MIT License — free to use, modify, and distribute.**
+**This project is licensed under the MIT License — free to use, modify, and distribute. See the LICENSE file for details.**
 
 ## 💬 Author
 
