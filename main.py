@@ -15,10 +15,12 @@ os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = "--no-sandbox"
 from PyQt5.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QPushButton, QListWidget,
     QFileDialog, QListWidgetItem, QComboBox, QLabel,
-    QHBoxLayout, QDialog, QMenu, QAction, QGraphicsDropShadowEffect, QSizeGrip
+    QHBoxLayout, QDialog, QMenu, QAction, QGraphicsDropShadowEffect, QSizeGrip,
+    QLineEdit, QTreeView, QFileSystemModel, QSplitter, QAbstractItemView,
+    QShortcut, QStackedWidget, QToolBar, QFrame
 )
-from PyQt5.QtCore import Qt, QThread, pyqtSignal, QSize
-from PyQt5.QtGui import QColor, QIcon, QPixmap, QImageReader
+from PyQt5.QtCore import Qt, QThread, pyqtSignal, QSize, QDir, QSortFilterProxyModel, QModelIndex
+from PyQt5.QtGui import QColor, QIcon, QPixmap, QImageReader, QKeySequence, QFont
 
 # ==========================================
 # STARTUP ERROR HANDLING
@@ -46,6 +48,7 @@ class CustomItemWidget(QWidget):
         super().__init__()
         self.main_app = main_app
         self.item = item
+        self._display_name = display_name
 
         layout = QHBoxLayout(self)
         layout.setContentsMargins(10, 5, 10, 5)
@@ -58,10 +61,10 @@ class CustomItemWidget(QWidget):
             lbl_icon.setFixedSize(64, 64)
         layout.addWidget(lbl_icon)
 
-        # 2. File Name
-        lbl_name = QLabel(display_name)
-        lbl_name.setStyleSheet("font-size: 14px; color: #E0E0E0; background: transparent;")
-        layout.addWidget(lbl_name)
+        # 2. File Name (editable inline via double-click or F2)
+        self.lbl_name = QLabel(display_name)
+        self.lbl_name.setStyleSheet("font-size: 14px; color: #E0E0E0; background: transparent;")
+        layout.addWidget(self.lbl_name)
 
         layout.addStretch()
 
@@ -90,6 +93,12 @@ class CustomItemWidget(QWidget):
 
     def move_down(self):
         self.main_app.move_item_manual(1, self.item)
+
+    def set_display_name(self, name):
+        """Update the visible label after rename."""
+        self._display_name = name
+        self.lbl_name.setText(name)
+
 
 class CustomTitleBar(QWidget):
     """
@@ -231,6 +240,89 @@ class ModernMessageBox(QDialog):
         dlg.exec_()
 
 
+class RenameDialog(QDialog):
+    """Inline rename dialog — shown centered over the app."""
+    def __init__(self, parent, current_name):
+        super().__init__(parent)
+        self.setWindowFlags(Qt.FramelessWindowHint | Qt.Dialog)
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setMinimumWidth(380)
+
+        base_layout = QVBoxLayout(self)
+        base_layout.setContentsMargins(10, 10, 10, 10)
+
+        main_wrapper = QWidget()
+        main_wrapper.setObjectName("MainWrapper")
+        shadow = QGraphicsDropShadowEffect(self)
+        shadow.setBlurRadius(15)
+        shadow.setColor(QColor(0, 0, 0, 180))
+        shadow.setOffset(0, 0)
+        main_wrapper.setGraphicsEffect(shadow)
+
+        layout = QVBoxLayout(main_wrapper)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+
+        self.title_bar = CustomTitleBar(self)
+        self.title_bar.title.setText("✏️ Rename File")
+        self.title_bar.btn_min.hide()
+        self.title_bar.btn_max.hide()
+        layout.addWidget(self.title_bar)
+
+        content = QWidget()
+        content.setObjectName("ContentContainer")
+        content_layout = QVBoxLayout(content)
+        content_layout.setContentsMargins(20, 16, 20, 16)
+        content_layout.setSpacing(10)
+
+        lbl = QLabel("Enter new name (stem only — extension is preserved):")
+        lbl.setStyleSheet("color: #AAAAAA; font-size: 12px;")
+        content_layout.addWidget(lbl)
+
+        # Split stem / suffix so user only edits the stem
+        p = Path(current_name)
+        self._suffix = p.suffix  # preserve original extension
+
+        self.edit = QLineEdit(p.stem)
+        self.edit.setStyleSheet("""
+            QLineEdit {
+                background-color: #2D2D2D;
+                border: 1px solid #00ADB5;
+                border-radius: 6px;
+                padding: 6px 10px;
+                font-size: 14px;
+                color: #E0E0E0;
+            }
+        """)
+        self.edit.selectAll()
+        content_layout.addWidget(self.edit)
+
+        btn_row = QHBoxLayout()
+        btn_row.addStretch()
+        btn_cancel = QPushButton("Cancel")
+        btn_cancel.clicked.connect(self.reject)
+        btn_ok = QPushButton("Rename")
+        btn_ok.setObjectName("PrimaryButton")
+        btn_ok.clicked.connect(self._commit)
+        btn_row.addWidget(btn_cancel)
+        btn_row.addWidget(btn_ok)
+        content_layout.addLayout(btn_row)
+
+        layout.addWidget(content)
+        base_layout.addWidget(main_wrapper)
+
+        # Enter key confirms
+        self.edit.returnPressed.connect(self._commit)
+
+    def _commit(self):
+        stem = self.edit.text().strip()
+        if stem:
+            self.accept()
+
+    def new_filename(self):
+        return self.edit.text().strip() + self._suffix
+
+
 class ModernMergeDialog(QDialog):
     def __init__(self, parent):
         super().__init__(parent)
@@ -305,16 +397,42 @@ class ModernMergeDialog(QDialog):
                 ModernMessageBox.show_msg(self, "Error", f"Merge failed:\n{e}", "error")
 
 
+# ==========================================
+# IMPROVED FILE BROWSER DIALOG
+# ==========================================
 class ModernFileDialog(QDialog):
-    def __init__(self, parent, title, mode="open", file_filter="All Files (*)"):
+    """
+    Fully custom dark-themed file browser with:
+      - Sidebar bookmarks (Home, Desktop, Documents, Downloads)
+      - Breadcrumb / path bar (editable)
+      - Tree navigator on the left + file list on the right
+      - Multi-file selection support
+      - Save mode with filename input
+    """
+
+    _BOOKMARKS = [
+        ("🏠  Home",      QDir.homePath()),
+        ("🖥  Desktop",   str(Path.home() / "Desktop")),
+        ("📄  Documents", str(Path.home() / "Documents")),
+        ("⬇  Downloads", str(Path.home() / "Downloads")),
+    ]
+
+    def __init__(self, parent, title, mode="open", file_filter="All Files (*)", multi=False):
         super().__init__(parent)
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.Dialog)
         self.setAttribute(Qt.WA_TranslucentBackground)
-        self.setMinimumSize(800, 500)
-        
+        self.setMinimumSize(860, 560)
+        self._mode = mode          # "open" | "save"
+        self._filter = file_filter
+        self._multi = multi
+        self._selected_paths = []
+        self._history = []         # back/forward stack
+        self._history_pos = -1
+
+        # ── Outer shell ───────────────────────────────────────────────────────
         base_layout = QVBoxLayout(self)
         base_layout.setContentsMargins(10, 10, 10, 10)
-        
+
         main_wrapper = QWidget()
         main_wrapper.setObjectName("MainWrapper")
         shadow = QGraphicsDropShadowEffect(self)
@@ -322,39 +440,279 @@ class ModernFileDialog(QDialog):
         shadow.setColor(QColor(0, 0, 0, 180))
         shadow.setOffset(0, 0)
         main_wrapper.setGraphicsEffect(shadow)
-        
-        layout = QVBoxLayout(main_wrapper)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(0)
-        
+
+        root_layout = QVBoxLayout(main_wrapper)
+        root_layout.setContentsMargins(0, 0, 0, 0)
+        root_layout.setSpacing(0)
+
+        # ── Title bar ─────────────────────────────────────────────────────────
         self.title_bar = CustomTitleBar(self)
-        self.title_bar.title.setText(f" 📂 {title}")
-        layout.addWidget(self.title_bar)
-        
+        self.title_bar.title.setText(f"📂  {title}")
+        self.title_bar.btn_min.hide()
+        self.title_bar.btn_max.hide()
+        root_layout.addWidget(self.title_bar)
+
         content = QWidget()
         content.setObjectName("ContentContainer")
         content_layout = QVBoxLayout(content)
         content_layout.setContentsMargins(10, 10, 10, 10)
-        
-        self.file_dialog = QFileDialog(content, title, "", file_filter)
-        self.file_dialog.setWindowFlags(Qt.Widget) 
-        self.file_dialog.setOptions(QFileDialog.DontUseNativeDialog)
-        
+        content_layout.setSpacing(6)
+
+        # ── Navigation bar (Back · Forward · Up · path bar) ───────────────────
+        nav_row = QHBoxLayout()
+        nav_row.setSpacing(4)
+
+        def nav_btn(label, tip, cb):
+            b = QPushButton(label)
+            b.setToolTip(tip)
+            b.setFixedSize(30, 28)
+            b.clicked.connect(cb)
+            return b
+
+        self._btn_back    = nav_btn("◀", "Back",    self._go_back)
+        self._btn_forward = nav_btn("▶", "Forward", self._go_forward)
+        self._btn_up      = nav_btn("▲", "Up",      self._go_up)
+        self._btn_back.setEnabled(False)
+        self._btn_forward.setEnabled(False)
+
+        self._path_bar = QLineEdit()
+        self._path_bar.setPlaceholderText("Type a path and press Enter…")
+        self._path_bar.returnPressed.connect(self._navigate_to_path_bar)
+
+        nav_row.addWidget(self._btn_back)
+        nav_row.addWidget(self._btn_forward)
+        nav_row.addWidget(self._btn_up)
+        nav_row.addWidget(self._path_bar)
+        content_layout.addLayout(nav_row)
+
+        # ── Splitter: sidebar | tree + file list ──────────────────────────────
+        splitter = QSplitter(Qt.Horizontal)
+        splitter.setHandleWidth(2)
+
+        # -- Sidebar --
+        sidebar = QFrame()
+        sidebar.setObjectName("Sidebar")
+        sidebar.setFixedWidth(155)
+        sidebar_layout = QVBoxLayout(sidebar)
+        sidebar_layout.setContentsMargins(6, 8, 6, 8)
+        sidebar_layout.setSpacing(2)
+
+        sidebar_layout.addWidget(self._section_label("PLACES"))
+        for label, path in self._BOOKMARKS:
+            b = self._sidebar_btn(label, path)
+            sidebar_layout.addWidget(b)
+
+        # Recent root drives
+        sidebar_layout.addSpacing(8)
+        sidebar_layout.addWidget(self._section_label("DRIVES"))
+        for drive in QDir.drives():
+            dp = drive.absoluteFilePath()
+            b = self._sidebar_btn(f"💽  {dp.rstrip('/')}", dp)
+            sidebar_layout.addWidget(b)
+
+        sidebar_layout.addStretch()
+
+        # -- File system model (tree on left, list on right share one model) --
+        self._fs_model = QFileSystemModel()
+        self._fs_model.setRootPath(QDir.rootPath())
+        # Apply extension filter for open mode
+        if mode == "open":
+            name_filters = self._parse_name_filters(file_filter)
+            if name_filters:
+                self._fs_model.setNameFilters(name_filters)
+                self._fs_model.setNameFilterDisables(False)
+
+        # -- Left tree (directory navigation) --
+        self._tree = QTreeView()
+        self._tree.setModel(self._fs_model)
+        self._tree.setRootIndex(self._fs_model.index(QDir.rootPath()))
+        self._tree.setHeaderHidden(True)
+        # Hide all columns except Name
+        for col in range(1, self._fs_model.columnCount()):
+            self._tree.hideColumn(col)
+        self._tree.setAnimated(False)
+        self._tree.setIndentation(14)
+        self._tree.setMinimumWidth(170)
+        self._tree.clicked.connect(self._tree_clicked)
+        self._tree.setObjectName("FileTree")
+        # Only show directories in the tree
+        self._fs_model.setFilter(QDir.AllDirs | QDir.NoDotAndDotDot)
+
+        # -- Right file list (files + subdirs in current directory) --
+        self._file_model = QFileSystemModel()
+        self._file_model.setRootPath(QDir.rootPath())
+        if mode == "open":
+            name_filters = self._parse_name_filters(file_filter)
+            if name_filters:
+                self._file_model.setNameFilters(name_filters)
+                self._file_model.setNameFilterDisables(False)
+        self._file_model.setFilter(QDir.AllEntries | QDir.NoDotAndDotDot)
+
+        self._file_list = QTreeView()
+        self._file_list.setModel(self._file_model)
+        self._file_list.setRootIndex(self._file_model.index(QDir.homePath()))
+        self._file_list.setSortingEnabled(True)
+        self._file_list.sortByColumn(0, Qt.AscendingOrder)
+        self._file_list.setObjectName("FileList")
+        if multi:
+            self._file_list.setSelectionMode(QAbstractItemView.ExtendedSelection)
+        self._file_list.doubleClicked.connect(self._file_list_double_clicked)
+        self._file_list.clicked.connect(self._file_list_clicked)
+
+        # Show columns: Name, Size, Type, Modified
+        self._file_list.header().setStretchLastSection(False)
+        self._file_list.header().setSectionResizeMode(0, self._file_list.header().Stretch)
+
+        right_panel = QWidget()
+        right_layout = QVBoxLayout(right_panel)
+        right_layout.setContentsMargins(0, 0, 0, 0)
+        right_layout.setSpacing(4)
+        right_layout.addWidget(self._file_list)
+
+        # Save mode: filename input row
         if mode == "save":
-            self.file_dialog.setAcceptMode(QFileDialog.AcceptSave)
-        else:
-            self.file_dialog.setAcceptMode(QFileDialog.AcceptOpen)
-            
-        content_layout.addWidget(self.file_dialog)
-        layout.addWidget(content)
+            fn_row = QHBoxLayout()
+            fn_row.addWidget(QLabel("Filename:"))
+            self._filename_edit = QLineEdit()
+            self._filename_edit.setPlaceholderText("output.pdf")
+            fn_row.addWidget(self._filename_edit)
+            right_layout.addLayout(fn_row)
+
+        splitter.addWidget(sidebar)
+        splitter.addWidget(self._tree)
+        splitter.addWidget(right_panel)
+        splitter.setStretchFactor(0, 0)
+        splitter.setStretchFactor(1, 1)
+        splitter.setStretchFactor(2, 3)
+        content_layout.addWidget(splitter)
+
+        # ── Bottom action row ─────────────────────────────────────────────────
+        action_row = QHBoxLayout()
+        action_row.addStretch()
+        btn_cancel = QPushButton("Cancel")
+        btn_cancel.clicked.connect(self.reject)
+        btn_open = QPushButton("Save" if mode == "save" else "Open")
+        btn_open.setObjectName("PrimaryButton")
+        btn_open.clicked.connect(self._commit)
+        action_row.addWidget(btn_cancel)
+        action_row.addWidget(btn_open)
+        content_layout.addLayout(action_row)
+
+        root_layout.addWidget(content)
         base_layout.addWidget(main_wrapper)
-        
-        self.file_dialog.accepted.connect(self.accept)
-        self.file_dialog.rejected.connect(self.reject)
-        
+
+        # Navigate to home on open
+        self._navigate(QDir.homePath(), push_history=False)
+
+    # ── Helpers ───────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _section_label(text):
+        lbl = QLabel(text)
+        lbl.setStyleSheet("color: #555555; font-size: 10px; font-weight: bold; margin-top: 4px;")
+        return lbl
+
+    def _sidebar_btn(self, label, path):
+        b = QPushButton(label)
+        b.setStyleSheet("""
+            QPushButton {
+                text-align: left; padding: 5px 8px;
+                background: transparent; border: none;
+                border-radius: 4px; color: #CCCCCC; font-size: 12px;
+            }
+            QPushButton:hover { background-color: #2D2D2D; }
+        """)
+        b.clicked.connect(lambda _, p=path: self._navigate(p))
+        return b
+
+    @staticmethod
+    def _parse_name_filters(filter_str):
+        """Extract glob patterns like *.zip from Qt filter strings."""
+        import re
+        return re.findall(r'\*\.\w+', filter_str) or []
+
+    # ── Navigation ────────────────────────────────────────────────────────────
+
+    def _navigate(self, path, push_history=True):
+        path = str(path)
+        if not os.path.isdir(path):
+            return
+        if push_history:
+            # Trim any forward history when navigating somewhere new
+            self._history = self._history[:self._history_pos + 1]
+            self._history.append(path)
+            self._history_pos = len(self._history) - 1
+        self._path_bar.setText(path)
+        self._file_list.setRootIndex(self._file_model.index(path))
+        # Expand tree to current folder
+        tree_idx = self._fs_model.index(path)
+        self._tree.expand(tree_idx)
+        self._tree.scrollTo(tree_idx)
+        self._tree.setCurrentIndex(tree_idx)
+        self._btn_back.setEnabled(self._history_pos > 0)
+        self._btn_forward.setEnabled(self._history_pos < len(self._history) - 1)
+
+    def _go_back(self):
+        if self._history_pos > 0:
+            self._history_pos -= 1
+            self._navigate(self._history[self._history_pos], push_history=False)
+
+    def _go_forward(self):
+        if self._history_pos < len(self._history) - 1:
+            self._history_pos += 1
+            self._navigate(self._history[self._history_pos], push_history=False)
+
+    def _go_up(self):
+        current = self._path_bar.text()
+        parent = str(Path(current).parent)
+        if parent != current:
+            self._navigate(parent)
+
+    def _navigate_to_path_bar(self):
+        self._navigate(self._path_bar.text())
+
+    def _tree_clicked(self, index):
+        path = self._fs_model.filePath(index)
+        self._navigate(path)
+
+    def _file_list_clicked(self, index):
+        path = self._file_model.filePath(index)
+        if os.path.isfile(path):
+            if self._mode == "save":
+                self._filename_edit.setText(Path(path).name)
+
+    def _file_list_double_clicked(self, index):
+        path = self._file_model.filePath(index)
+        if os.path.isdir(path):
+            self._navigate(path)
+        elif os.path.isfile(path):
+            self._commit()
+
+    def _commit(self):
+        if self._mode == "save":
+            current_dir = self._path_bar.text()
+            name = self._filename_edit.text().strip() if hasattr(self, '_filename_edit') else ""
+            if not name:
+                ModernMessageBox.show_msg(self, "No filename", "Please enter a filename.", "warning")
+                return
+            self._selected_paths = [str(Path(current_dir) / name)]
+        else:
+            indexes = self._file_list.selectedIndexes()
+            # selectedIndexes returns all columns — filter to column 0 only
+            col0 = [i for i in indexes if i.column() == 0]
+            paths = [self._file_model.filePath(i) for i in col0]
+            self._selected_paths = [p for p in paths if os.path.isfile(p)]
+            if not self._selected_paths:
+                return  # nothing selected, stay open
+        self.accept()
+
+    # ── Public API ────────────────────────────────────────────────────────────
+
     def get_selected_path(self):
-        files = self.file_dialog.selectedFiles()
-        return files[0] if files else None
+        return self._selected_paths[0] if self._selected_paths else None
+
+    def get_selected_paths(self):
+        return self._selected_paths
 
 
 # ==========================================
@@ -399,6 +757,85 @@ class PdfGeneratorThread(QThread):
 
 
 # ==========================================
+# SMOOTH LIST WIDGET  (single, correct __init__)
+# ==========================================
+class SmoothListWidget(QListWidget):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setIconSize(QSize(64, 64))
+        self.setDragDropMode(QListWidget.InternalMove)
+        self.setSelectionMode(QListWidget.ExtendedSelection)
+        self.setVerticalScrollMode(QListWidget.ScrollPerPixel)
+        self.setUniformItemSizes(True)
+        self.setAutoScroll(False)          # We use our own smooth scroll
+
+        # Custom high-speed scroll timer
+        self.scroll_timer = QTimer(self)
+        self.scroll_timer.timeout.connect(self.force_auto_scroll)
+
+    def dragMoveEvent(self, event):
+        super().dragMoveEvent(event)
+        if not self.scroll_timer.isActive():
+            self.scroll_timer.start(16)   # 60 FPS
+
+    def dropEvent(self, event):
+        super().dropEvent(event)
+        self.scroll_timer.stop()
+
+    def force_auto_scroll(self):
+        """Dynamically tracks physical mouse position so dragging outside still works."""
+        from PyQt5.QtGui import QCursor
+        local_pos = self.mapFromGlobal(QCursor.pos())
+        local_y = local_pos.y()
+        local_x = local_pos.x()
+        margin = 40
+
+        if local_x < -100 or local_x > self.width() + 100:
+            self.scroll_timer.stop()
+            return
+
+        if local_y < margin:
+            scroll_dir = -1
+        elif local_y > self.height() - margin:
+            scroll_dir = 1
+        else:
+            self.scroll_timer.stop()
+            return
+
+        scrollbar = self.verticalScrollBar()
+        scrollbar.setValue(scrollbar.value() + (scroll_dir * 15))
+
+    def startDrag(self, supportedActions):
+        """Dark-themed drag ghost; kills scroll loop on release."""
+        from PyQt5.QtGui import QDrag, QPixmap, QPainter, QColor, QPen
+        from PyQt5.QtWidgets import QWidget
+
+        item = self.currentItem()
+        widget = self.itemWidget(item)
+
+        if widget:
+            pixmap = QPixmap(widget.size())
+            pixmap.fill(QColor("#1A2B2C"))
+            painter = QPainter(pixmap)
+            painter.setRenderHint(QPainter.Antialiasing)
+            painter.setPen(QPen(QColor("#00ADB5"), 2))
+            painter.drawRoundedRect(1, 1, widget.width() - 2, widget.height() - 2, 6, 6)
+            widget.render(painter, flags=QWidget.DrawChildren)
+            painter.end()
+
+            drag = QDrag(self)
+            drag.setMimeData(self.mimeData(self.selectedItems()))
+            drag.setPixmap(pixmap)
+            drag.setHotSpot(pixmap.rect().center())
+            drag.exec_(supportedActions, Qt.MoveAction)
+        else:
+            super().startDrag(supportedActions)
+
+        # CRITICAL: kill auto-scroll the instant the drag ends
+        self.scroll_timer.stop()
+
+
+# ==========================================
 # MAIN APPLICATION
 # ==========================================
 class Zip2PDF(QWidget):
@@ -411,17 +848,22 @@ class Zip2PDF(QWidget):
         self.setMinimumHeight(600)
         self.setAcceptDrops(True)
 
+        # One persistent temp dir for the session
         self.temp = Path(tempfile.mkdtemp())
-        self.files = []         
-        self.undo_stack = []    
-        self.redo_stack = []    
+        self.files = []
+        self.undo_stack = []
+        self.redo_stack = []
+        self.icon_cache = {}   # keyed by Path; cleared on clear-all / rename
 
+        self._build_ui()
+
+    def _build_ui(self):
         base_layout = QVBoxLayout(self)
         base_layout.setContentsMargins(15, 15, 15, 15)
 
         self.main_wrapper = QWidget()
         self.main_wrapper.setObjectName("MainWrapper")
-        
+
         shadow = QGraphicsDropShadowEffect(self)
         shadow.setBlurRadius(20)
         shadow.setColor(QColor(0, 0, 0, 180))
@@ -429,7 +871,7 @@ class Zip2PDF(QWidget):
         self.main_wrapper.setGraphicsEffect(shadow)
 
         main_layout = QVBoxLayout(self.main_wrapper)
-        main_layout.setContentsMargins(0, 0, 0, 0) 
+        main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
 
         self.title_bar = CustomTitleBar(self)
@@ -444,12 +886,15 @@ class Zip2PDF(QWidget):
         hint.setObjectName("HintLabel")
         layout.addWidget(hint)
 
-        # --- Advanced Sorting Setup ---
+        # --- Sort controls row ---
         controls_layout = QHBoxLayout()
         controls_layout.addWidget(QLabel("Sort:"))
         self.sort_box = QComboBox()
         self.sort_box.blockSignals(True)
-        self.sort_box.addItems(["Natural / Num Sort", "Alphabetical (A-Z)", "Alphabetical (Z-A)", "By Extension / Type", "By File Size", "Custom (Manual Drag)"])
+        self.sort_box.addItems([
+            "Natural / Num Sort", "Alphabetical (A-Z)", "Alphabetical (Z-A)",
+            "By Extension / Type", "By File Size", "Custom (Manual Drag)"
+        ])
         self.sort_box.blockSignals(False)
         self.sort_box.currentIndexChanged.connect(self.apply_sort)
         controls_layout.addWidget(self.sort_box)
@@ -457,7 +902,7 @@ class Zip2PDF(QWidget):
         self.btn_undo = QPushButton("↩ Undo")
         self.btn_undo.clicked.connect(self.undo)
         self.btn_undo.setEnabled(False)
-        
+
         self.btn_redo = QPushButton("↪ Redo")
         self.btn_redo.clicked.connect(self.redo)
         self.btn_redo.setEnabled(False)
@@ -465,39 +910,46 @@ class Zip2PDF(QWidget):
         self.status_label = QLabel("")
         self.status_label.setStyleSheet("color: #00ADB5; font-weight: bold;")
 
-        # --- High-Performance List Setup ---
-        self.icon_cache = {} # STOPS LAG: Caches thumbnails in memory so scrolling is instant
-        self.listbox = SmoothListWidget(self)
-        self.listbox.setContextMenuPolicy(Qt.CustomContextMenu)
-        self.listbox.customContextMenuRequested.connect(self.show_context_menu)
-        self.listbox.itemDoubleClicked.connect(self.preview_item)
-        
-        # When user manually drags, automatically switch sort box to "Custom"
-        self.listbox.model().rowsMoved.connect(lambda: self.sort_box.setCurrentText("Custom (Manual Drag)"))
-        layout.addWidget(self.listbox)
-
         controls_layout.addStretch()
         controls_layout.addWidget(self.status_label)
         controls_layout.addWidget(self.btn_undo)
         controls_layout.addWidget(self.btn_redo)
         layout.addLayout(controls_layout)
 
-        # Prominent Trash Button aligned to the right
+        # --- List widget ---
+        self.listbox = SmoothListWidget(self)
+        self.listbox.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.listbox.customContextMenuRequested.connect(self.show_context_menu)
+        self.listbox.itemDoubleClicked.connect(self.preview_item)
+        # Sync backend order when user drags in the list
+        self.listbox.model().rowsMoved.connect(
+            lambda: self.sort_box.blockSignals(True) or
+                    self.sort_box.setCurrentText("Custom (Manual Drag)") or
+                    self.sort_box.blockSignals(False)
+        )
+        layout.addWidget(self.listbox)
+
+        # --- Trash / Clear row ---
         trash_layout = QHBoxLayout()
         trash_layout.addStretch()
+        self.btn_clear_all = QPushButton("🧹 Clear All")
+        self.btn_clear_all.setObjectName("TrashButton")
+        self.btn_clear_all.clicked.connect(self.clear_all)
         self.btn_trash = QPushButton("🗑️ Remove Selected")
         self.btn_trash.setObjectName("TrashButton")
         self.btn_trash.clicked.connect(self.remove_selected)
+        trash_layout.addWidget(self.btn_clear_all)
         trash_layout.addWidget(self.btn_trash)
         layout.addLayout(trash_layout)
 
+        # --- Action buttons ---
         buttons = QHBoxLayout()
         self.btn_import = QPushButton("📂 Import File", clicked=self.open_file_dialog)
-        self.btn_merge = QPushButton("🧩 Merge PDFs", clicked=self.open_merge_tool)
+        self.btn_merge  = QPushButton("🧩 Merge PDFs",  clicked=self.open_merge_tool)
         self.btn_preview = QPushButton("👁 Preview PDF", clicked=self.preview_pdf)
-        self.btn_save = QPushButton("💾 Save PDF", clicked=self.save_pdf)
-        self.btn_save.setObjectName("PrimaryButton") 
-        
+        self.btn_save   = QPushButton("💾 Save PDF",    clicked=self.save_pdf)
+        self.btn_save.setObjectName("PrimaryButton")
+
         buttons.addWidget(self.btn_import)
         buttons.addWidget(self.btn_merge)
         buttons.addWidget(self.btn_preview)
@@ -513,17 +965,16 @@ class Zip2PDF(QWidget):
             shutil.rmtree(self.temp, ignore_errors=True)
 
     # ── Edge-resize for frameless window ──────────────────────────────────────
-    RESIZE_MARGIN = 8  # px of hot-zone around the window border
+    RESIZE_MARGIN = 8
 
     def _resize_edge(self, pos):
-        """Return a bitmask of Qt edges the mouse is over (0 = none)."""
         x, y, m = pos.x(), pos.y(), self.RESIZE_MARGIN
         w, h = self.width(), self.height()
         edge = 0
-        if x <= m:               edge |= Qt.LeftEdge
-        if x >= w - m:           edge |= Qt.RightEdge
-        if y <= m:               edge |= Qt.TopEdge
-        if y >= h - m:           edge |= Qt.BottomEdge
+        if x <= m:      edge |= Qt.LeftEdge
+        if x >= w - m:  edge |= Qt.RightEdge
+        if y <= m:       edge |= Qt.TopEdge
+        if y >= h - m:  edge |= Qt.BottomEdge
         return edge
 
     def mousePressEvent(self, event):
@@ -539,44 +990,38 @@ class Zip2PDF(QWidget):
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event):
-        # Update cursor when not dragging
         if not (event.buttons() & Qt.LeftButton):
             edge = self._resize_edge(event.pos())
             cursors = {
-                Qt.LeftEdge | Qt.TopEdge:    Qt.SizeFDiagCursor,
+                Qt.LeftEdge | Qt.TopEdge:     Qt.SizeFDiagCursor,
                 Qt.RightEdge | Qt.BottomEdge: Qt.SizeFDiagCursor,
-                Qt.RightEdge | Qt.TopEdge:   Qt.SizeBDiagCursor,
-                Qt.LeftEdge | Qt.BottomEdge: Qt.SizeBDiagCursor,
-                Qt.TopEdge:                  Qt.SizeVerCursor,
-                Qt.BottomEdge:               Qt.SizeVerCursor,
-                Qt.LeftEdge:                 Qt.SizeHorCursor,
-                Qt.RightEdge:                Qt.SizeHorCursor,
+                Qt.RightEdge | Qt.TopEdge:    Qt.SizeBDiagCursor,
+                Qt.LeftEdge | Qt.BottomEdge:  Qt.SizeBDiagCursor,
+                Qt.TopEdge:                   Qt.SizeVerCursor,
+                Qt.BottomEdge:                Qt.SizeVerCursor,
+                Qt.LeftEdge:                  Qt.SizeHorCursor,
+                Qt.RightEdge:                 Qt.SizeHorCursor,
             }
             cursor = cursors.get(edge)
             self.setCursor(cursor) if cursor else self.unsetCursor()
             super().mouseMoveEvent(event)
             return
 
-        # Execute resize drag
         edge = getattr(self, '_Zip2PDF__resize_edge', 0)
         if edge and not self.isMaximized():
             delta = event.globalPos() - self.__resize_start_mouse
-            geo = self.__resize_start_geo
+            geo   = self.__resize_start_geo
             x, y, w, h = geo.x(), geo.y(), geo.width(), geo.height()
             min_w, min_h = self.minimumWidth(), self.minimumHeight()
 
-            if edge & Qt.RightEdge:
-                w = max(min_w, geo.width() + delta.x())
-            if edge & Qt.BottomEdge:
-                h = max(min_h, geo.height() + delta.y())
+            if edge & Qt.RightEdge:  w = max(min_w, geo.width() + delta.x())
+            if edge & Qt.BottomEdge: h = max(min_h, geo.height() + delta.y())
             if edge & Qt.LeftEdge:
                 new_w = max(min_w, geo.width() - delta.x())
-                x = geo.x() + geo.width() - new_w
-                w = new_w
+                x = geo.x() + geo.width() - new_w; w = new_w
             if edge & Qt.TopEdge:
                 new_h = max(min_h, geo.height() - delta.y())
-                y = geo.y() + geo.height() - new_h
-                h = new_h
+                y = geo.y() + geo.height() - new_h; h = new_h
 
             self.setGeometry(x, y, w, h)
             event.accept()
@@ -590,8 +1035,10 @@ class Zip2PDF(QWidget):
         super().mouseReleaseEvent(event)
         event.accept()
 
+    # ── Undo / Redo ───────────────────────────────────────────────────────────
+
     def save_state(self):
-        self.sync_files_order() # Ensure state tracks visual moves
+        self.sync_files_order()
         self.undo_stack.append(self.files.copy())
         self.redo_stack.clear()
         self.update_undo_redo_buttons()
@@ -615,12 +1062,13 @@ class Zip2PDF(QWidget):
         self.btn_redo.setEnabled(bool(self.redo_stack))
 
     def sync_files_order(self):
-        """CRITICAL FIX: Syncs the backend list with visual drag-and-drop changes."""
-        new_files = []
-        for i in range(self.listbox.count()):
-            item = self.listbox.item(i)
-            new_files.append(item.data(Qt.UserRole))
-        self.files = new_files
+        """Syncs backend list with visual drag-and-drop order."""
+        self.files = [
+            self.listbox.item(i).data(Qt.UserRole)
+            for i in range(self.listbox.count())
+        ]
+
+    # ── Loading state ─────────────────────────────────────────────────────────
 
     def set_loading_state(self, is_loading, message=""):
         self.listbox.setEnabled(not is_loading)
@@ -628,7 +1076,10 @@ class Zip2PDF(QWidget):
         self.btn_save.setEnabled(not is_loading)
         self.btn_preview.setEnabled(not is_loading)
         self.btn_trash.setEnabled(not is_loading)
+        self.btn_clear_all.setEnabled(not is_loading)
         self.status_label.setText(message if is_loading else "")
+
+    # ── Drag-and-drop into app ────────────────────────────────────────────────
 
     def dragEnterEvent(self, event):
         if event.mimeData().hasUrls():
@@ -646,20 +1097,24 @@ class Zip2PDF(QWidget):
             for p in paths:
                 self.process_input(p)
 
+    # ── File import ───────────────────────────────────────────────────────────
+
     def open_file_dialog(self):
-        dlg = ModernFileDialog(self, "Select File", "open", "All Files (*)")
+        dlg = ModernFileDialog(
+            self, "Select File", "open",
+            "Supported Files (*.zip *.7z *.jpg *.jpeg *.png *.webp *.txt *.pdf)",
+            multi=True
+        )
         if dlg.exec_() == QDialog.Accepted:
-            path = dlg.get_selected_path()
-            if path:
+            paths = dlg.get_selected_paths()
+            if paths:
                 self.save_state()
-                self.process_input(Path(path))
+                for p in paths:
+                    self.process_input(Path(p))
 
     def process_input(self, path: Path):
-        name = path.name.lower()
-
         if path.suffix == "":
             if ModernMessageBox.ask(self, "Unknown File", f"'{path.name}' has no extension.\nTreat as ZIP?"):
-                # Copy to temp with a .zip extension – never rename the user's original file
                 temp_copy = self.temp / (path.stem + ".zip")
                 shutil.copy2(path, temp_copy)
                 self.start_extraction(temp_copy)
@@ -667,7 +1122,7 @@ class Zip2PDF(QWidget):
 
         if path.suffix.lower() in SUPPORTED_ARCHIVES:
             self.start_extraction(path)
-        elif name.endswith(".pdf"):
+        elif path.suffix.lower() == ".pdf":
             if ModernMessageBox.ask(self, "PDF Detected", "Open in PDF Merger?"):
                 self.open_merge_tool(initial_pdf=path)
         elif path.suffix.lower() in VALID_PAGE_FILES:
@@ -677,14 +1132,21 @@ class Zip2PDF(QWidget):
         else:
             ModernMessageBox.show_msg(self, "Unsupported", f"Skipping: {path.name}", "warning")
 
+    # ── Archive extraction ─────────────────────────────────────────────────────
+    # FIX #1: Each archive gets its own sub-temp dir so files from the previous
+    # archive don't bleed into the next load.
+
     def start_extraction(self, archive_path):
+        # Create a fresh sub-directory just for this archive
+        archive_temp = Path(tempfile.mkdtemp(dir=self.temp))
         self.set_loading_state(True, "⏳ Extracting archive...")
-        self.extractor_thread = ExtractorThread(archive_path, self.temp)
+        self.extractor_thread = ExtractorThread(archive_path, archive_temp)
         self.extractor_thread.finished.connect(self.on_extraction_finished)
         self.extractor_thread.error.connect(self.on_thread_error)
         self.extractor_thread.start()
 
     def on_extraction_finished(self, found_files):
+        self.save_state()               # push undo snapshot BEFORE adding
         for f in found_files:
             if f not in self.files:
                 self.files.append(f)
@@ -695,6 +1157,159 @@ class Zip2PDF(QWidget):
     def on_thread_error(self, error_msg):
         self.set_loading_state(False)
         ModernMessageBox.show_msg(self, "Error", f"An operation failed:\n{error_msg}", "error")
+
+    # ── List management ───────────────────────────────────────────────────────
+
+    def refresh_list(self):
+        self.listbox.clear()
+        for f in self.files:
+            display_name = f.name
+            if len(display_name) > 28:
+                display_name = display_name[:15] + "..." + display_name[-10:]
+
+            item = QListWidgetItem()
+            item.setSizeHint(QSize(0, 80))
+            item.setData(Qt.UserRole, f)
+
+            ext = f.suffix.lower()
+            if f not in self.icon_cache:
+                if ext in (".jpg", ".jpeg", ".png", ".webp"):
+                    reader = QImageReader(str(f))
+                    reader.setAutoTransform(True)
+                    reader.setScaledSize(QSize(64, 64))
+                    img = reader.read()
+                    self.icon_cache[f] = QIcon(QPixmap.fromImage(img)) if not img.isNull() else QIcon()
+                else:
+                    self.icon_cache[f] = QIcon()
+
+            self.listbox.addItem(item)
+            custom_widget = CustomItemWidget(self, item, display_name, self.icon_cache[f])
+            self.listbox.setItemWidget(item, custom_widget)
+
+    def preview_item(self, item):
+        webbrowser.open(str(item.data(Qt.UserRole)))
+
+    def apply_sort(self):
+        self.save_state()
+        mode = self.sort_box.currentText()
+        if mode == "Alphabetical (A-Z)":
+            self.files.sort(key=lambda x: x.name.lower())
+        elif mode == "Alphabetical (Z-A)":
+            self.files.sort(key=lambda x: x.name.lower(), reverse=True)
+        elif mode == "By Extension / Type":
+            self.files.sort(key=lambda x: (x.suffix.lower(), x.name.lower()))
+        elif mode == "By File Size":
+            self.files.sort(key=lambda x: x.stat().st_size if x.exists() else 0, reverse=True)
+        elif mode == "Natural / Num Sort":
+            self.files = natsorted(self.files, key=lambda x: x.name.lower())
+        self.refresh_list()
+
+    def move_item_manual(self, direction, item):
+        self.save_state()
+        row = self.listbox.row(item)
+        new_row = row + direction
+        if 0 <= new_row < len(self.files):
+            self.files[row], self.files[new_row] = self.files[new_row], self.files[row]
+            self.sort_box.setCurrentText("Custom (Manual Drag)")
+            self.refresh_list()
+            self.listbox.setCurrentRow(new_row)
+
+    def show_context_menu(self, pos):
+        menu = QMenu()
+        rename_action = QAction("✏️ Rename (F2)", self)
+        rename_action.triggered.connect(self.rename_selected)
+        delete_action = QAction("❌ Remove Selected", self)
+        delete_action.triggered.connect(self.remove_selected)
+        menu.addAction(rename_action)
+        menu.addSeparator()
+        menu.addAction(delete_action)
+        menu.exec_(self.listbox.mapToGlobal(pos))
+
+    def remove_selected(self):
+        rows = sorted(
+            [index.row() for index in self.listbox.selectedIndexes()],
+            reverse=True
+        )
+        if rows:
+            self.save_state()
+            for row in rows:
+                self.listbox.takeItem(row)
+            self.sync_files_order()
+
+    def clear_all(self):
+        """FIX #1b: Remove ALL files and clear temp-extracted data."""
+        if not self.files:
+            return
+        if ModernMessageBox.ask(self, "Clear All", "Remove all files from the workspace?"):
+            self.save_state()
+            self.files.clear()
+            self.icon_cache.clear()
+            self.listbox.clear()
+            # Clean out and recreate a fresh temp directory
+            shutil.rmtree(self.temp, ignore_errors=True)
+            self.temp = Path(tempfile.mkdtemp())
+
+    # ── FIX #2: Rename via F2 ─────────────────────────────────────────────────
+
+    def rename_selected(self):
+        """Rename the currently selected file (display name + actual file if in temp)."""
+        item = self.listbox.currentItem()
+        if not item:
+            return
+        old_path = item.data(Qt.UserRole)
+        dlg = RenameDialog(self, old_path.name)
+        if dlg.exec_() != QDialog.Accepted:
+            return
+
+        new_name = dlg.new_filename()
+        if new_name == old_path.name:
+            return  # no change
+
+        new_path = old_path.parent / new_name
+
+        # Only physically rename if the file lives inside our temp dir
+        # (never touch user originals that were added by reference)
+        if self.temp in old_path.parents:
+            try:
+                old_path.rename(new_path)
+            except Exception as e:
+                ModernMessageBox.show_msg(self, "Rename Error", str(e), "error")
+                return
+        else:
+            # For originals: we can't rename them, so just update the display alias
+            # by copying them into temp under the new name
+            try:
+                shutil.copy2(old_path, new_path)
+                # Replace in file list
+                idx = self.files.index(old_path)
+                self.files[idx] = new_path
+            except Exception as e:
+                ModernMessageBox.show_msg(self, "Rename Error", str(e), "error")
+                return
+
+        # Update icon cache: move old key to new key
+        if old_path in self.icon_cache:
+            self.icon_cache[new_path] = self.icon_cache.pop(old_path)
+
+        # Update the in-memory file list
+        idx = self.listbox.row(item)
+        if idx < len(self.files) and self.files[idx] == old_path:
+            self.files[idx] = new_path
+
+        # Update the list item in-place (no full refresh needed)
+        item.setData(Qt.UserRole, new_path)
+        display = new_name if len(new_name) <= 28 else new_name[:15] + "..." + new_name[-10:]
+        widget = self.listbox.itemWidget(item)
+        if widget:
+            widget.set_display_name(display)
+
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key_F2:
+            self.rename_selected()
+        elif event.key() in (Qt.Key_Delete, Qt.Key_Backspace):
+            self.remove_selected()
+
+    # ── PDF generation ────────────────────────────────────────────────────────
 
     def preview_pdf(self):
         self.sync_files_order()
@@ -716,7 +1331,7 @@ class Zip2PDF(QWidget):
     def start_pdf_generation(self, out_path, is_preview):
         self.set_loading_state(True, "⏳ Generating PDF...")
         self.generator_thread = PdfGeneratorThread(self.files, out_path)
-        self.generator_thread.is_preview = is_preview 
+        self.generator_thread.is_preview = is_preview
         self.generator_thread.finished.connect(self.on_generation_finished)
         self.generator_thread.error.connect(self.on_thread_error)
         self.generator_thread.start()
@@ -728,266 +1343,12 @@ class Zip2PDF(QWidget):
         else:
             ModernMessageBox.show_msg(self, "Success", "PDF Saved Successfully! 🎉", "info")
 
-    def apply_sort(self):
-        self.save_state()
-        mode = self.sort_box.currentText()
-        if mode == "Alphabetical (A-Z)": 
-            self.files.sort(key=lambda x: x.name.lower())
-        elif mode == "Alphabetical (Z-A)": 
-            self.files.sort(key=lambda x: x.name.lower(), reverse=True)
-        elif mode == "By Extension / Type": 
-            self.files.sort(key=lambda x: (x.suffix.lower(), x.name.lower()))
-        elif mode == "By File Size": 
-            self.files.sort(key=lambda x: x.stat().st_size if x.exists() else 0, reverse=True)
-        elif mode == "Natural / Num Sort": 
-            self.files = natsorted(self.files, key=lambda x: x.name.lower())
-        # If "Custom (Manual Drag)", we do nothing and let the user drag.
-        
-        self.refresh_list()
-
-    def move_item_manual(self, direction, item):
-        self.save_state()
-        row = self.listbox.row(item)
-        new_row = row + direction
-
-        if 0 <= new_row < len(self.files):
-            # Swap the items in the backend array
-            self.files[row], self.files[new_row] = self.files[new_row], self.files[row]
-            
-            # Switch the dropdown to show we are manually sorting
-            self.sort_box.setCurrentText("Custom (Manual Drag)")
-            
-            # Refresh to redraw the cards in the new order
-            self.refresh_list()
-            
-            # Keep the moved item highlighted so the user doesn't lose track of it
-            self.listbox.setCurrentRow(new_row)
-
-    def refresh_list(self):
-        self.listbox.clear()
-        for f in self.files:
-            display_name = f.name
-            if len(display_name) > 28:
-                display_name = display_name[:15] + "..." + display_name[-10:]
-
-            # Create a blank list item container
-            item = QListWidgetItem()
-            item.setSizeHint(QSize(0, 80)) # Force height to fit the thumbnail and buttons
-            item.setData(Qt.UserRole, f)
-
-            # ANTI-LAG FIX: Load the thumbnail into memory only once
-            ext = f.suffix.lower()
-            if f not in self.icon_cache:
-                if ext in (".jpg", ".jpeg", ".png", ".webp"):
-                    reader = QImageReader(str(f))
-                    reader.setAutoTransform(True)
-                    reader.setScaledSize(QSize(64, 64))
-                    img = reader.read()
-                    self.icon_cache[f] = QIcon(QPixmap.fromImage(img)) if not img.isNull() else QIcon()
-                else:
-                    self.icon_cache[f] = QIcon()
-
-            self.listbox.addItem(item)
-            
-            # Inject our custom Visual Card (with buttons) into the blank list item
-            custom_widget = CustomItemWidget(self, item, display_name, self.icon_cache[f])
-            self.listbox.setItemWidget(item, custom_widget)
-
-    def preview_item(self, item):
-        webbrowser.open(str(item.data(Qt.UserRole)))
-
-    def show_context_menu(self, pos):
-        menu = QMenu()
-        delete_action = QAction("❌ Remove Selected", self)
-        delete_action.triggered.connect(self.remove_selected)
-        menu.addAction(delete_action)
-        menu.exec_(self.listbox.mapToGlobal(pos))
-
-    def remove_selected(self):
-        rows = sorted([index.row() for index in self.listbox.selectedIndexes()], reverse=True)
-        if rows:
-            self.save_state()
-            # Remove from listbox directly, then sync to self.files
-            for row in rows:
-                self.listbox.takeItem(row)
-            self.sync_files_order()
-
-    def keyPressEvent(self, event):
-        if event.key() in (Qt.Key_Delete, Qt.Key_Backspace):
-            self.remove_selected()
-
     def open_merge_tool(self, initial_pdf=None):
         dlg = ModernMergeDialog(self)
         if initial_pdf:
             dlg.add_pdf(initial_pdf)
         dlg.exec_()
 
-class SmoothListWidget(QListWidget):
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setIconSize(QSize(64, 64))
-        self.setDragDropMode(QListWidget.InternalMove)
-        self.setSelectionMode(QListWidget.ExtendedSelection)
-        self.setVerticalScrollMode(QListWidget.ScrollPerPixel)
-        self.setUniformItemSizes(True) 
-        self.setAutoScroll(False) # We completely override native clunky scroll
-
-        self.scroll_timer = QTimer(self)
-        self.scroll_timer.timeout.connect(self.force_auto_scroll)
-
-    def dragMoveEvent(self, event):
-        super().dragMoveEvent(event)
-        # Just ensure the timer is running; the timer handles the exact math
-        if not self.scroll_timer.isActive():
-            self.scroll_timer.start(16) # 60 FPS
-
-    def dropEvent(self, event):
-        super().dropEvent(event)
-        self.scroll_timer.stop()
-
-    def force_auto_scroll(self):
-        """Dynamically tracks physical mouse position so dragging outside the app still works."""
-        from PyQt5.QtGui import QCursor
-        
-        # Get mouse position relative to the list widget
-        local_pos = self.mapFromGlobal(QCursor.pos())
-        local_y = local_pos.y()
-        local_x = local_pos.x()
-        
-        margin = 40
-        
-        # 1. Stop scrolling if user drags the file far horizontally away from the list
-        if local_x < -100 or local_x > self.width() + 100:
-            self.scroll_timer.stop()
-            return
-
-        # 2. Re-calculate direction dynamically (Fixes the "drag up/down" bug)
-        if local_y < margin:
-            scroll_dir = -1
-        elif local_y > self.height() - margin:
-            scroll_dir = 1
-        else:
-            # Mouse is in the safe middle zone -> stop scrolling
-            self.scroll_timer.stop()
-            return
-            
-        # 3. Apply smooth scroll
-        scrollbar = self.verticalScrollBar()
-        scrollbar.setValue(scrollbar.value() + (scroll_dir * 15))
-
-    def startDrag(self, supportedActions):
-        """Fixes the white card issue and GUARANTEES the scroll loop dies on release."""
-        from PyQt5.QtGui import QDrag, QPixmap, QPainter, QColor, QPen
-        from PyQt5.QtWidgets import QWidget
-        from PyQt5.QtCore import Qt
-        
-        item = self.currentItem()
-        widget = self.itemWidget(item)
-        
-        if widget:
-            pixmap = QPixmap(widget.size())
-            pixmap.fill(QColor("#1A2B2C")) 
-            
-            painter = QPainter(pixmap)
-            painter.setRenderHint(QPainter.Antialiasing)
-            painter.setPen(QPen(QColor("#00ADB5"), 2))
-            painter.drawRoundedRect(1, 1, widget.width() - 2, widget.height() - 2, 6, 6)
-            
-            widget.render(painter, flags=QWidget.DrawChildren)
-            painter.end()
-            
-            drag = QDrag(self)
-            drag.setMimeData(self.mimeData(self.selectedItems()))
-            drag.setPixmap(pixmap)
-            drag.setHotSpot(pixmap.rect().center())
-            
-            # This is a blocking call. It halts code here until the user drops the file.
-            drag.exec_(supportedActions, Qt.MoveAction)
-        else:
-            # Fallback for standard items
-            super().startDrag(supportedActions)
-            
-        # CRITICAL FIX: The absolute second the drag is dropped/released, kill the loop!
-        self.scroll_timer.stop()
-        
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setIconSize(QSize(64, 64))
-        self.setDragDropMode(QListWidget.InternalMove)
-        self.setSelectionMode(QListWidget.ExtendedSelection)
-        self.setVerticalScrollMode(QListWidget.ScrollPerPixel)
-        self.setUniformItemSizes(True) 
-        self.setAutoScroll(False) # We will use a custom, forced auto-scroll
-
-        # Custom high-speed scroll timer
-        self.scroll_timer = QTimer(self)
-        self.scroll_timer.timeout.connect(self.force_auto_scroll)
-        self.scroll_dir = 0
-
-    def dragMoveEvent(self, event):
-        super().dragMoveEvent(event)
-        y = event.pos().y()
-        margin = 35
-        # Trigger scroll if near edge OR if mouse is dragged outside the window
-        if y < margin or self.mapToGlobal(event.pos()).y() < self.window().mapToGlobal(self.window().rect().topLeft()).y() + margin:
-            self.scroll_dir = -1
-            if not self.scroll_timer.isActive(): self.scroll_timer.start(16) # 60 FPS
-        elif y > self.height() - margin or self.mapToGlobal(event.pos()).y() > self.window().mapToGlobal(self.window().rect().bottomRight()).y() - margin:
-            self.scroll_dir = 1
-            if not self.scroll_timer.isActive(): self.scroll_timer.start(16)
-        else:
-            self.scroll_timer.stop()
-
-    def dragLeaveEvent(self, event):
-        super().dragLeaveEvent(event)
-        # Keep scrolling if we were already scrolling (mouse left the widget during drag)
-        if self.scroll_dir != 0:
-            self.scroll_timer.start(16)
-
-    def dropEvent(self, event):
-        super().dropEvent(event)
-        self.scroll_timer.stop()
-
-    def force_auto_scroll(self):
-        scrollbar = self.verticalScrollBar()
-        scrollbar.setValue(scrollbar.value() + (self.scroll_dir * 15))
-    
-    def startDrag(self, supportedActions):
-        """Fixes the white card issue by forcing a dark background and skipping default OS backgrounds."""
-        from PyQt5.QtGui import QDrag, QPixmap, QPainter, QColor, QPen
-        from PyQt5.QtWidgets import QWidget
-        from PyQt5.QtCore import Qt
-        
-        item = self.currentItem()
-        widget = self.itemWidget(item)
-        
-        if widget:
-            # 1. Create a blank image the exact size of the card
-            pixmap = QPixmap(widget.size())
-            
-            # 2. Fill it with the exact dark "Selected" background color
-            pixmap.fill(QColor("#1A2B2C")) 
-            
-            # 3. Draw the teal border around it
-            painter = QPainter(pixmap)
-            painter.setRenderHint(QPainter.Antialiasing)
-            painter.setPen(QPen(QColor("#00ADB5"), 2))
-            painter.drawRoundedRect(1, 1, widget.width() - 2, widget.height() - 2, 6, 6)
-            
-            # 4. CRITICAL FIX: Only draw the child elements (text, buttons, image).
-            # This stops the OS from injecting that ugly white box!
-            widget.render(painter, flags=QWidget.DrawChildren)
-            painter.end()
-            
-            # 5. Start the drag operation with our perfect dark-themed card
-            drag = QDrag(self)
-            drag.setMimeData(self.mimeData(self.selectedItems()))
-            drag.setPixmap(pixmap)
-            drag.setHotSpot(pixmap.rect().center())
-            drag.exec_(supportedActions, Qt.MoveAction)
-        else:
-            # Fallback for standard items
-            super().startDrag(supportedActions)
 
 # ==========================================
 # MODERN OBSIDIAN & TEAL STYLESHEET
@@ -999,7 +1360,7 @@ QWidget {
     color: #E0E0E0;
 }
 
-Zip2PDF, ModernMessageBox, ModernMergeDialog, ModernFileDialog {
+Zip2PDF, ModernMessageBox, ModernMergeDialog, ModernFileDialog, RenameDialog {
     background-color: transparent;
 }
 
@@ -1033,12 +1394,10 @@ QPushButton#WindowControlButton {
     font-weight: bold;
     border-radius: 4px;
 }
-
 QPushButton#WindowControlButton:hover {
     background-color: #333333;
     color: #FFFFFF;
 }
-
 QPushButton#CloseButton:hover {
     background-color: #E81123;
     color: white;
@@ -1058,17 +1417,14 @@ QPushButton {
     padding: 8px 16px;
     font-weight: bold;
 }
-
 QPushButton:hover {
     background-color: #2D2D2D;
     border: 1px solid #00ADB5;
 }
-
 QPushButton:pressed {
     background-color: #00ADB5;
     color: #121212;
 }
-
 QPushButton:disabled {
     background-color: #121212;
     color: #4A4A4A;
@@ -1080,12 +1436,10 @@ QPushButton#PrimaryButton {
     color: #121212;
     border: none;
 }
-
 QPushButton#PrimaryButton:hover {
     background-color: #00D2DD;
 }
 
-/* Custom styling for the new Trash Button */
 QPushButton#TrashButton {
     background-color: #1A1212;
     color: #FF5555;
@@ -1104,8 +1458,6 @@ QListWidget {
     padding: 10px;
     outline: none;
 }
-
-/* Card Style for List Items */
 QListWidget::item {
     background-color: #242424;
     border-radius: 6px;
@@ -1113,12 +1465,10 @@ QListWidget::item {
     margin-bottom: 6px;
     border: 1px solid #2D2D2D;
 }
-
 QListWidget::item:hover {
     background-color: #2D2D2D;
     border: 1px solid #00ADB5;
 }
-
 QListWidget::item:selected {
     background-color: #1A2B2C;
     border: 1px solid #00ADB5;
@@ -1135,19 +1485,66 @@ QComboBox {
 }
 QComboBox::drop-down { border: none; }
 
-QTreeView, QListView, QTableView, QLineEdit {
+/* File browser tree / list */
+QFrame#Sidebar {
+    background-color: #161616;
+    border-right: 1px solid #2D2D2D;
+}
+
+QTreeView#FileTree, QTreeView#FileList {
     background-color: #1A1A1A;
     color: #E0E0E0;
-    border: 1px solid #333333;
-    border-radius: 4px;
+    border: none;
+    border-radius: 0px;
+    selection-background-color: #1A2B2C;
+    selection-color: #00D2DD;
+    outline: none;
 }
+QTreeView#FileTree::item:hover, QTreeView#FileList::item:hover {
+    background-color: #2D2D2D;
+}
+QTreeView#FileTree::item:selected, QTreeView#FileList::item:selected {
+    background-color: #1A2B2C;
+    color: #00D2DD;
+}
+
 QHeaderView::section {
     background-color: #2D2D2D;
     color: #E0E0E0;
     border: 1px solid #1A1A1A;
     padding: 4px;
 }
-QFileDialog { background-color: transparent; }
+
+QSplitter::handle {
+    background-color: #2D2D2D;
+}
+
+QLineEdit {
+    background-color: #1A1A1A;
+    color: #E0E0E0;
+    border: 1px solid #333333;
+    border-radius: 4px;
+    padding: 4px 8px;
+}
+QLineEdit:focus {
+    border: 1px solid #00ADB5;
+}
+
+QScrollBar:vertical {
+    background: #1A1A1A;
+    width: 8px;
+    border-radius: 4px;
+}
+QScrollBar::handle:vertical {
+    background: #3A3A3A;
+    border-radius: 4px;
+    min-height: 20px;
+}
+QScrollBar::handle:vertical:hover {
+    background: #00ADB5;
+}
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
+
 QToolButton {
     background-color: transparent;
     color: #E0E0E0;
