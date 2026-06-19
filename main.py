@@ -11,6 +11,7 @@ from PyQt5.QtCore import QTimer
 # Force X11/XWayland to fix Gnome frameless resizing and Wayland warnings
 os.environ["QT_QPA_PLATFORM"] = "xcb"
 os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = "--no-sandbox"
+os.environ["QT_QPA_PLATFORMTHEME"] = "gtk3"
 
 from PyQt5.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QPushButton, QListWidget,
@@ -19,8 +20,8 @@ from PyQt5.QtWidgets import (
     QLineEdit, QTreeView, QFileSystemModel, QSplitter, QAbstractItemView,
     QShortcut, QStackedWidget, QToolBar, QFrame
 )
-from PyQt5.QtCore import Qt, QThread, pyqtSignal, QSize, QDir, QSortFilterProxyModel, QModelIndex
-from PyQt5.QtGui import QColor, QIcon, QPixmap, QImageReader, QKeySequence, QFont
+from PyQt5.QtGui import QColor, QIcon, QPixmap, QImageReader, QKeySequence, QFont, QDesktopServices
+from PyQt5.QtCore import Qt, QThread, pyqtSignal, QSize, QDir, QSortFilterProxyModel, QModelIndex, QUrl
 
 # ==========================================
 # STARTUP ERROR HANDLING
@@ -375,8 +376,9 @@ class ModernMergeDialog(QDialog):
         
     def add_pdf(self, path=None):
         if not path:
-            opts = QFileDialog.Options() | QFileDialog.DontUseNativeDialog
-            path_str, _ = QFileDialog.getOpenFileName(self, "Add PDF", "", "PDF (*.pdf)", options=opts)
+            # Removed QFileDialog.DontUseNativeDialog
+            options = QFileDialog.Options()
+            path_str, _ = QFileDialog.getOpenFileName(self, "Add PDF", str(Path.home()), "PDF (*.pdf)", options=options)
             if path_str: path = Path(path_str)
         if path:
             self.pdfs_to_merge.append(path)
@@ -386,8 +388,9 @@ class ModernMergeDialog(QDialog):
         if len(self.pdfs_to_merge) < 2: 
             return ModernMessageBox.show_msg(self, "Error", "Select at least 2 PDFs to merge.", "warning")
             
-        opts = QFileDialog.Options() | QFileDialog.DontUseNativeDialog
-        save_path, _ = QFileDialog.getSaveFileName(self, "Save Merged PDF", "", "PDF (*.pdf)", options=opts)
+        # Removed QFileDialog.DontUseNativeDialog
+        options = QFileDialog.Options()
+        save_path, _ = QFileDialog.getSaveFileName(self, "Save Merged PDF", str(Path.home() / "merged.pdf"), "PDF (*.pdf)", options=options)
         if save_path:
             try:
                 merge_pdfs(self.pdfs_to_merge, save_path)
@@ -400,7 +403,7 @@ class ModernMergeDialog(QDialog):
 # ==========================================
 # IMPROVED FILE BROWSER DIALOG
 # ==========================================
-class ModernFileDialog(QDialog):
+
     """
     Fully custom dark-themed file browser with:
       - Sidebar bookmarks (Home, Desktop, Documents, Downloads)
@@ -710,9 +713,6 @@ class ModernFileDialog(QDialog):
 
     def get_selected_path(self):
         return self._selected_paths[0] if self._selected_paths else None
-
-    def get_selected_paths(self):
-        return self._selected_paths
 
 
 # ==========================================
@@ -1100,17 +1100,22 @@ class Zip2PDF(QWidget):
     # ── File import ───────────────────────────────────────────────────────────
 
     def open_file_dialog(self):
-        dlg = ModernFileDialog(
-            self, "Select File", "open",
-            "Supported Files (*.zip *.7z *.jpg *.jpeg *.png *.webp *.txt *.pdf)",
-            multi=True
+        options = QFileDialog.Options()
+        # This flag forces the dialog to absorb your custom dark CSS theme
+        options |= QFileDialog.DontUseNativeDialog 
+        
+        paths, _ = QFileDialog.getOpenFileNames(
+            self,
+            "Select Files to Import",
+            str(Path.home()),
+            "Supported Files (*.zip *.7z *.jpg *.jpeg *.png *.webp *.txt *.pdf);;All Files (*)",
+            options=options
         )
-        if dlg.exec_() == QDialog.Accepted:
-            paths = dlg.get_selected_paths()
-            if paths:
-                self.save_state()
-                for p in paths:
-                    self.process_input(Path(p))
+        
+        if paths:
+            self.save_state()
+            for p in paths:
+                self.process_input(Path(p))
 
     def process_input(self, path: Path):
         if path.suffix == "":
@@ -1322,11 +1327,20 @@ class Zip2PDF(QWidget):
         self.sync_files_order()
         if not self.files:
             return ModernMessageBox.show_msg(self, "Empty", "Add files before saving.", "warning")
-        dlg = ModernFileDialog(self, "Save PDF", "save", "PDF (*.pdf)")
-        if dlg.exec_() == QDialog.Accepted:
-            out_path = dlg.get_selected_path()
-            if out_path:
-                self.start_pdf_generation(Path(out_path), is_preview=False)
+            
+        options = QFileDialog.Options()
+        # This flag forces the save dialog to absorb your custom dark CSS theme
+        options |= QFileDialog.DontUseNativeDialog
+        
+        out_path_str, _ = QFileDialog.getSaveFileName(
+            self, 
+            "Save Merged PDF", 
+            str(Path.home() / "output.pdf"), 
+            "PDF (*.pdf)", 
+            options=options
+        )
+        if out_path_str:
+            self.start_pdf_generation(Path(out_path_str), is_preview=False)
 
     def start_pdf_generation(self, out_path, is_preview):
         self.set_loading_state(True, "⏳ Generating PDF...")
@@ -1555,6 +1569,29 @@ QToolButton {
 QToolButton:hover {
     background-color: #2D2D2D;
     border: 1px solid #444444;
+}
+
+QFileDialog {
+    background-color: #121212;
+    color: #E0E0E0;
+}
+
+QFileDialog QListView, QFileDialog QTreeView, QFileDialog QTableView {
+    background-color: #1A1A1A;
+    color: #E0E0E0;
+    border: 1px solid #2D2D2D;
+    border-radius: 6px;
+    selection-background-color: #1A2B2C;
+    selection-color: #00D2DD;
+    outline: none;
+}
+
+QFileDialog QListView::item:hover, QFileDialog QTreeView::item:hover {
+    background-color: #2D2D2D;
+}
+
+QFileDialog QLabel {
+    color: #AAAAAA;
 }
 """
 
