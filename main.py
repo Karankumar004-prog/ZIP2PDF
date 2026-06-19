@@ -424,7 +424,8 @@ class ModernMergeDialog(QDialog):
         super().__init__(parent)
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.Dialog)
         self.setAttribute(Qt.WA_TranslucentBackground)
-        self.setMinimumSize(860, 560)
+        self.setMinimumSize(500, 350)
+        self.resize(600, 400)
         self._mode = mode          # "open" | "save"
         self._filter = file_filter
         self._multi = multi
@@ -834,7 +835,59 @@ class SmoothListWidget(QListWidget):
         # CRITICAL: kill auto-scroll the instant the drag ends
         self.scroll_timer.stop()
 
+class FramelessFileDialog(QDialog):
+    """Wraps the built-in Qt File Picker inside our sleek custom frameless window."""
+    def __init__(self, parent, title, start_dir, name_filter, mode="open", multi=False):
+        super().__init__(parent)
+        self.setWindowFlags(Qt.FramelessWindowHint | Qt.Dialog)
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setMinimumSize(500, 350)
+        self.resize(600, 400)
 
+        base_layout = QVBoxLayout(self)
+        base_layout.setContentsMargins(10, 10, 10, 10)
+
+        main_wrapper = QWidget()
+        main_wrapper.setObjectName("MainWrapper")
+        shadow = QGraphicsDropShadowEffect(self)
+        shadow.setBlurRadius(15)
+        shadow.setColor(QColor(0, 0, 0, 180))
+        shadow.setOffset(0, 0)
+        main_wrapper.setGraphicsEffect(shadow)
+
+        layout = QVBoxLayout(main_wrapper)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+
+        # Attach our custom dark title bar
+        self.title_bar = CustomTitleBar(self)
+        self.title_bar.title.setText(f" 📂 {title}")
+        self.title_bar.btn_min.hide()
+        self.title_bar.btn_max.hide()
+        layout.addWidget(self.title_bar)
+
+        # Embed the actual Qt File Dialog as a widget inside our layout
+        self.picker = QFileDialog(self, title, start_dir, name_filter)
+        self.picker.setWindowFlags(Qt.Widget) # Forces it to be embedded, hiding OS borders
+        self.picker.setOption(QFileDialog.DontUseNativeDialog)
+        
+        if mode == "save":
+            self.picker.setAcceptMode(QFileDialog.AcceptSave)
+        else:
+            self.picker.setAcceptMode(QFileDialog.AcceptOpen)
+            if multi:
+                self.picker.setFileMode(QFileDialog.ExistingFiles)
+
+        # Link the picker's buttons to close our custom window
+        self.picker.accepted.connect(self.accept)
+        self.picker.rejected.connect(self.reject)
+
+        layout.addWidget(self.picker)
+        base_layout.addWidget(main_wrapper)
+
+    def get_selected_paths(self):
+        return self.picker.selectedFiles()
+    
 # ==========================================
 # MAIN APPLICATION
 # ==========================================
@@ -1100,22 +1153,21 @@ class Zip2PDF(QWidget):
     # ── File import ───────────────────────────────────────────────────────────
 
     def open_file_dialog(self):
-        options = QFileDialog.Options()
-        # This flag forces the dialog to absorb your custom dark CSS theme
-        options |= QFileDialog.DontUseNativeDialog 
-        
-        paths, _ = QFileDialog.getOpenFileNames(
-            self,
-            "Select Files to Import",
-            str(Path.home()),
+        dlg = FramelessFileDialog(
+            self, 
+            "Select Files to Import", 
+            str(Path.home()), 
             "Supported Files (*.zip *.7z *.jpg *.jpeg *.png *.webp *.txt *.pdf);;All Files (*)",
-            options=options
+            mode="open",
+            multi=True
         )
         
-        if paths:
-            self.save_state()
-            for p in paths:
-                self.process_input(Path(p))
+        if dlg.exec_() == QDialog.Accepted:
+            paths = dlg.get_selected_paths()
+            if paths:
+                self.save_state()
+                for p in paths:
+                    self.process_input(Path(p))
 
     def process_input(self, path: Path):
         if path.suffix == "":
@@ -1328,19 +1380,19 @@ class Zip2PDF(QWidget):
         if not self.files:
             return ModernMessageBox.show_msg(self, "Empty", "Add files before saving.", "warning")
             
-        options = QFileDialog.Options()
-        # This flag forces the save dialog to absorb your custom dark CSS theme
-        options |= QFileDialog.DontUseNativeDialog
-        
-        out_path_str, _ = QFileDialog.getSaveFileName(
+        dlg = FramelessFileDialog(
             self, 
             "Save Merged PDF", 
             str(Path.home() / "output.pdf"), 
             "PDF (*.pdf)", 
-            options=options
+            mode="save"
         )
-        if out_path_str:
-            self.start_pdf_generation(Path(out_path_str), is_preview=False)
+        
+        if dlg.exec_() == QDialog.Accepted:
+            paths = dlg.get_selected_paths()
+            if paths:
+                out_path = Path(paths[0])
+                self.start_pdf_generation(out_path, is_preview=False)
 
     def start_pdf_generation(self, out_path, is_preview):
         self.set_loading_state(True, "⏳ Generating PDF...")
@@ -1372,6 +1424,44 @@ QWidget {
     font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
     font-size: 13px;
     color: #E0E0E0;
+}
+
+QFileDialog QWidget {
+    background-color: transparent;
+}
+
+QFileDialog QFrame {
+    border: none;
+}
+
+QFileDialog QListView, QFileDialog QTreeView, QFileDialog QTableView {
+    background-color: #1A1A1A;
+    color: #E0E0E0;
+    border: 1px solid #2D2D2D;
+    border-radius: 6px;
+    selection-background-color: #1A2B2C;
+    selection-color: #00D2DD;
+    outline: none;
+}
+
+QFileDialog QListView::item:hover, QFileDialog QTreeView::item:hover {
+    background-color: #2D2D2D;
+}
+
+QFileDialog QLabel {
+    color: #E0E0E0;
+}
+
+QFileDialog QToolButton {
+    background-color: transparent;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    color: #E0E0E0;
+}
+
+QFileDialog QToolButton:hover {
+    background-color: #2D2D2D;
+    border: 1px solid #00ADB5;
 }
 
 Zip2PDF, ModernMessageBox, ModernMergeDialog, ModernFileDialog, RenameDialog {
@@ -1490,14 +1580,51 @@ QListWidget::item:selected {
     font-weight: bold;
 }
 
+/* 1. Base ComboBox - combobox-popup: 0 stops the jumping! */
 QComboBox {
     background-color: #1E1E1E;
+    color: #E0E0E0;
+    selection-background-color: #1E1E1E; 
+    selection-color: #E0E0E0;
     border: 1px solid #333333;
     border-radius: 4px;
-    padding: 4px 10px;
-    color: #E0E0E0;
+    padding: 6px 12px;
+    combobox-popup: 0; /* CRITICAL: Forces standard dropdown instead of jumping menu */
 }
-QComboBox::drop-down { border: none; }
+
+QComboBox:hover {
+    border: 1px solid #00ADB5;
+    background-color: #2D2D2D;
+}
+
+QComboBox:on {
+    border: 1px solid #00ADB5;
+}
+
+QComboBox::drop-down { 
+    border: none; 
+}
+
+/* 2. Dropdown List Container */
+QComboBox QAbstractItemView {
+    background-color: #1E1E1E;
+    color: #E0E0E0;
+    selection-background-color: #1A2B2C;
+    selection-color: #00D2DD;
+    border: 1px solid #333333;
+    outline: none;
+}
+
+/* 3. Hover and sizing for the actual items inside the dropdown */
+QComboBox QAbstractItemView::item {
+    min-height: 26px;
+    padding: 4px 8px;
+}
+
+QComboBox QAbstractItemView::item:hover {
+    background-color: #2D2D2D;
+    color: #00D2DD;
+}
 
 /* File browser tree / list */
 QFrame#Sidebar {
