@@ -12,6 +12,7 @@ from PyQt5.QtCore import QTimer
 os.environ["QT_QPA_PLATFORM"] = "xcb"
 os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = "--no-sandbox"
 os.environ["QT_QPA_PLATFORMTHEME"] = "gtk3"
+os.environ["GTK_THEME"] = "Adwaita:dark"
 
 from PyQt5.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QPushButton, QListWidget,
@@ -894,7 +895,8 @@ class FramelessFileDialog(QDialog):
 class Zip2PDF(QWidget):
     def __init__(self):
         super().__init__()
-        self.setWindowFlags(Qt.FramelessWindowHint | Qt.Window)
+        # self.setWindowFlags(Qt.FramelessWindowHint | Qt.Window)
+        self.setWindowFlags(Qt.Window)
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setMouseTracking(True)
         self.setMinimumWidth(740)
@@ -912,23 +914,23 @@ class Zip2PDF(QWidget):
 
     def _build_ui(self):
         base_layout = QVBoxLayout(self)
-        base_layout.setContentsMargins(15, 15, 15, 15)
+        base_layout.setContentsMargins(0, 0, 0, 0)
 
         self.main_wrapper = QWidget()
         self.main_wrapper.setObjectName("MainWrapper")
 
-        shadow = QGraphicsDropShadowEffect(self)
-        shadow.setBlurRadius(20)
-        shadow.setColor(QColor(0, 0, 0, 180))
-        shadow.setOffset(0, 4)
-        self.main_wrapper.setGraphicsEffect(shadow)
+        # shadow = QGraphicsDropShadowEffect(self)
+        # shadow.setBlurRadius(20)
+        # shadow.setColor(QColor(0, 0, 0, 180))
+        # shadow.setOffset(0, 4)
+        # self.main_wrapper.setGraphicsEffect(shadow)
 
         main_layout = QVBoxLayout(self.main_wrapper)
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
 
-        self.title_bar = CustomTitleBar(self)
-        main_layout.addWidget(self.title_bar)
+        # self.title_bar = CustomTitleBar(self)
+        # main_layout.addWidget(self.title_bar)
 
         content_container = QWidget()
         content_container.setObjectName("ContentContainer")
