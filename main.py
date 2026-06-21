@@ -170,9 +170,9 @@ class CustomTitleBar(QWidget):
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton and not self._win_parent.isMaximized():
-            self._drag_start_pos = (
-                event.globalPosition().toPoint() - self._win_parent.frameGeometry().topLeft()
-            )
+            window = self.window().windowHandle()
+            if window:
+                window.startSystemMove()
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event):
@@ -722,7 +722,7 @@ class Zip2PDF(QWidget):
             shutil.rmtree(self.temp, ignore_errors=True)
 
     # ── Edge-resize for frameless window ──────────────────────────────────────
-    RESIZE_MARGIN = 8
+    RESIZE_MARGIN = 20
 
     def _resize_edge(self, pos):
         x, y, m = pos.x(), pos.y(), self.RESIZE_MARGIN
@@ -738,15 +738,15 @@ class Zip2PDF(QWidget):
         if event.button() == Qt.MouseButton.LeftButton and not self.isMaximized():
             edge = self._resize_edge(event.position().toPoint())
             if edge:
-                self.__resize_edge = edge
-                self.__resize_start_geo = self.geometry()
-                self.__resize_start_mouse = event.globalPosition().toPoint()
+                window = self.window().windowHandle()
+                if window:
+                    window.startSystemResize(Qt.Edges(edge))
                 event.accept()
                 return
-        self.__resize_edge = 0
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event):
+        # We only need this function now to change the cursor icon when hovering
         if not (event.buttons() & Qt.MouseButton.LeftButton):
             edge = self._resize_edge(event.position().toPoint())
             cursors = {
@@ -761,37 +761,8 @@ class Zip2PDF(QWidget):
             }
             cursor = cursors.get(edge)
             self.setCursor(cursor) if cursor else self.unsetCursor()
-            super().mouseMoveEvent(event)
-            return
-
-        edge = getattr(self, '_Zip2PDF__resize_edge', 0)
-        if edge and not self.isMaximized():
-            delta = event.globalPosition().toPoint() - self.__resize_start_mouse
-            geo   = self.__resize_start_geo
-            x, y, w, h = geo.x(), geo.y(), geo.width(), geo.height()
-            min_w, min_h = self.minimumWidth(), self.minimumHeight()
-
-            if edge & Qt.Edge.RightEdge.value:  w = max(min_w, geo.width() + delta.x())
-            if edge & Qt.Edge.BottomEdge.value: h = max(min_h, geo.height() + delta.y())
-            if edge & Qt.Edge.LeftEdge.value:
-                new_w = max(min_w, geo.width() - delta.x())
-                x = geo.x() + geo.width() - new_w; w = new_w
-            if edge & Qt.Edge.TopEdge.value:
-                new_h = max(min_h, geo.height() - delta.y())
-                y = geo.y() + geo.height() - new_h; h = new_h
-
-            self.setGeometry(x, y, w, h)
-            event.accept()
-            return
-
+            
         super().mouseMoveEvent(event)
-
-    def mouseReleaseEvent(self, event):
-        self.__resize_edge = 0
-        self.unsetCursor()
-        super().mouseReleaseEvent(event)
-        event.accept()
-
     # ── Undo / Redo ───────────────────────────────────────────────────────────
 
     def save_state(self):
