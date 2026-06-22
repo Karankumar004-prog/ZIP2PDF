@@ -14,7 +14,7 @@ os.environ["QT_QPA_PLATFORMTHEME"] = "gtk3"
 os.environ["GTK_THEME"] = "Adwaita:dark"
 
 from PyQt6.QtCore import (
-    Qt, QThread, pyqtSignal, QSize, QDir, QSortFilterProxyModel, QModelIndex, QUrl, QTimer
+    Qt, QThread, pyqtSignal, QSize, QDir, QSortFilterProxyModel, QModelIndex, QUrl, QTimer, QSettings
 )
 from PyQt6.QtGui import (
     QColor, QIcon, QPixmap, QImageReader, QKeySequence, QFont, QDesktopServices,
@@ -613,6 +613,7 @@ class Zip2PDF(QWidget):
         self.icon_cache = {}   # keyed by Path; cleared on clear-all / rename
 
         self._build_ui()
+        self._load_settings()
 
     def _build_ui(self):
         base_layout = QVBoxLayout(self)
@@ -717,9 +718,21 @@ class Zip2PDF(QWidget):
         base_layout.addWidget(self.main_wrapper)
         self.setLayout(base_layout)
 
+    def _load_settings(self):
+        """Loads the saved window size and position from the system registry/config."""
+        self.settings = QSettings("Zip2PDF", "App")
+        saved_geometry = self.settings.value("geometry")
+        if saved_geometry is not None:
+            self.restoreGeometry(saved_geometry)
+
     def closeEvent(self, event):
+        """Saves window geometry right before shutting down."""
+        if hasattr(self, 'settings'):
+            self.settings.setValue("geometry", self.saveGeometry())
+            
         if self.temp.exists():
             shutil.rmtree(self.temp, ignore_errors=True)
+        super().closeEvent(event)
 
     # ── Edge-resize for frameless window ──────────────────────────────────────
     RESIZE_MARGIN = 20
@@ -740,7 +753,7 @@ class Zip2PDF(QWidget):
             if edge:
                 window = self.window().windowHandle()
                 if window:
-                    window.startSystemResize(Qt.Edges(edge))
+                    window.startSystemResize(Qt.Edge(edge))   # <--- FIXED!
                 event.accept()
                 return
         super().mousePressEvent(event)
