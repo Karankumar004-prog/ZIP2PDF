@@ -1,0 +1,9 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=ZIP2PDF
+Comment=Extract archives and merge PDFs effortlessly
+Exec="/home/mrwhite/Documents/Applicational Development/ZIP2PDF/dist/ZIP2PDF"
+Icon=/home/mrwhite/Documents/Applicational Development/ZIP2PDF/icons/image.png
+Terminal=false
+Categories=Utility;Office;
