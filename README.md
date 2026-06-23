@@ -123,8 +123,8 @@ To add ZIP2PDF to your GNOME or KDE application menu:
 ```bash
 nano ~/.local/share/applications/zip2pdf.desktop
 ```
-1. Paste the following configuration (update paths accordingly):
-```ini,Toml
+3. Paste the following configuration (update paths accordingly):
+```Ini,TOML
 [Desktop Entry]
 Version=1.0
 Type=Application
@@ -135,9 +135,27 @@ Icon=/path/to/your/icons/image.png
 Terminal=false
 Categories=Utility;Office;
 ```
-1. Update the desktop database:
+4. Update the desktop database:
 ```bash
 update-desktop-database ~/.local/share/applications/
+```
+## Making an Excectuable permanent application
+
+1. Move the Executable to a Permanent Home
+In Linux, user-specific applications belong in ~/.local/bin/. Run this command to move your newly built app there:
+```bash
+mkdir -p ~/.local/bin
+mv "/path/to/your/ZIP2PDF/dist/ZIP2PDF" ~/.local/bin/zip2pdf
+```
+2. Update the Desktop Shortcut
+Now, you just need to tell your Fedora menu where the app moved to. Open your ~/.local/share/applications/zip2pdf.desktop file and update the Exec line to point to the new location:
+```Ini,TOML
+Exec=/home/mrwhite/.local/bin/zip2pdf
+```
+3. Clean Up Your Project
+Now you are completely safe to run your cleanup command in your project folder:
+```bash
+rm -rf dist/ build/ __pycache__/ *.spec
 ```
 
 ---
