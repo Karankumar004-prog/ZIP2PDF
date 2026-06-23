@@ -156,8 +156,7 @@ mv "/path/to/your/ZIP2PDF/dist/ZIP2PDF" ~/.local/bin/zip2pdf
 ```
 
 ### 2️⃣ Update the Desktop Shortcut
-Now, you just need to tell your Fedora menu where the app moved to. Open your ~/.local/share/applications/zip2pdf.desktop file and update the Exec line to point to the new location:
-Note: Don't Forgot to remove the quotes.
+Now, you just need to tell your Fedora menu where the app moved to. Open your ~/.local/share/applications/zip2pdf.desktop file and update the Exec line to point to the new location(Note: Don't Forgot to remove the quotes.):
 
 ```Ini,TOML
 Exec=/home/mrwhite/.local/bin/zip2pdf
