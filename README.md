@@ -131,7 +131,7 @@ Type=Application
 Name=ZIP2PDF
 Comment=Extract archives and merge PDFs seamlessly
 Exec="/path/to/your/ZIP2PDF"
-Icon="/path/to/your/image.svg"
+Icon=/path/to/your/icons/image.png
 Terminal=false
 Categories=Utility;Office;
 ```
