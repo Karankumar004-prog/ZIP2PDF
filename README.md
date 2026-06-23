@@ -1,12 +1,11 @@
-# 📦 ZIP2PDF — Professional Edition
+# ZIP2PDF
 
-ZIP2PDF is a fast, stable, and beautifully designed desktop application that converts archive files and images into formatted PDF documents. 
-
-Built with Python and PyQt5, this tool features a custom frameless UI, background multi-threading for heavy processing, and an elegant **Obsidian & Teal** dark theme.
-
----
+A sleek, lightweight Linux desktop utility designed to effortlessly extract ZIP archives and convert their contents into cleanly formatted PDF documents. 
 
 ## ✨ Key Features
+* **Seamless Extraction:** Instantly unpacks standard archive formats.
+* **Smart PDF Conversion:** Merges extracted images and text files into a single, cohesive PDF.
+* **Native Linux Feel:** Built with a modern, dark-themed UI (Obsidian and Cyan) that looks right at home on Fedora, GNOME, and KDE.
 
 | Feature | Description | Status |
 |---------|-------------|--------|
@@ -37,8 +36,16 @@ Built with Python and PyQt5, this tool features a custom frameless UI, backgroun
 
 ---
 
-## 📥 Installation & Setup
+### ⚙️ Requirements
 
+- Component	Version
+- Python	3.8+
+- OS	Linux / Windows
+- Dependencies	See requirements.txt
+
+---
+
+## 🚀 Installation & Setup
 ### Option 1: Run from Source
 
 **1. Clone the Repository**
@@ -64,36 +71,7 @@ To package this application into a standalone .exe (Windows) or binary (Linux) s
 pip install pyinstaller
 pyinstaller --noconfirm --onedir --windowed --add-data "utils:utils" main.py
 ```
-Your runnable application will be generated inside the dist/main folder. You can zip this folder and distribute it to your users.
-
 ---
-### ⚙️ Requirements
-
-- Component	Version
-- Python	3.8+
-- OS	Linux / Windows
-- Dependencies	See requirements.txt
-
-## 📂 Project Structure
-```
-ZIP2PDF/
-│
-├── main.py                # Main UI, Threading, and custom Window Logic
-├── utils/
-│   ├── extractor.py       # ZIP/7z background extraction handler
-│   └── pdf_tools.py       # pypdf & FPDF generation logic
-├── requirements.txt       # Dependencies
-└── README.md              # Project Documentation
-```
-
-## 🎯 How to Use
-
-- Launch the app
-- Import a ZIP archive or drag & drop it
-- Sort / reorder pages as needed
-- Delete unwanted pages (Delete/Backspace)
-- Preview output
-- Save as PDF
 
 ## ⚡ Keyboard Shortcuts
 **Action	Shortcut**
@@ -102,6 +80,7 @@ ZIP2PDF/
 - Redo	= Ctrl + Y
 - Minimize & Maximize Application = Double Tap Title bar
 - Close App	= Alt + F4
+- Rename File = F2
 
 ## ❓ Why This Tool Exists
 
@@ -112,33 +91,66 @@ ZIP2PDF/
 
 - ZIP2PDF processes everything 100% locally on your machine, ensuring maximum speed and total data privacy. 🚀
 
-## 🌱 Roadmap
+### Prerequisites
+Make sure you have Python 3 installed on your system along with the following dependencies:
+* `PyQt6` (For the graphical interface)
+* `Pillow` (For image processing)
+* `PyCryptodome` (For secure extraction)
+* `FPDF` (for PDF Generation)
+* `PyPDF2` (for PDF merging)
 
- - PDF Thumbnails Preview
- - OCR Support (Image → Text)
- - Password-protected ZIP Support
- - AppImage + EXE Releases
- - UI Themes / Light & Dark Mode
 
-## 🧑‍💻 Built With
+### Running Locally
+To run the application directly from the source code:
+1. Clone the repository.
+2. Navigate to the project folder: `cd ZIP2PDF`
+3. Install requirements: `pip install -r requirements.txt`
+4. Run the app: `python3 main.py`
+
+## 📦 Building the Executable
+If you want to compile ZIP2PDF into a single, standalone Linux executable, we use PyInstaller. 
+
+Run the following command in the project root:
+```bash
+pyinstaller --onefile --windowed --name ZIP2PDF main.py
 ```
-Python 3.8+
-PyQt5 - GUI Framework
-FPDF - PDF Generation
-Pillow (PIL) - Image processing
-pypdf - PDF Merging (Modern replacement for PyPDF2)
-natsort
-py7zr (optional)
+## 🖥️ Desktop Integration (Linux)
+To add ZIP2PDF to your GNOME or KDE application menu:
+
+1. Move the compiled ZIP2PDF executable to your desired permanent folder.
+
+2. Create a desktop entry:
+```bash
+nano ~/.local/share/applications/zip2pdf.desktop
 ```
+1. Paste the following configuration (update paths accordingly):
+```ini,Toml
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=ZIP2PDF
+Comment=Extract archives and merge PDFs seamlessly
+Exec="/path/to/your/ZIP2PDF"
+Icon="/path/to/your/image.svg"
+Terminal=false
+Categories=Utility;Office;
+```
+1. Update the desktop database:
+```bash
+update-desktop-database ~/.local/share/applications/
+```
+
+---
 
 ## 🤝 Contributing
 
 PRs and suggestions are welcome!
 Open issues for bugs, improvements, and features.
 
-## 📜 License
+---
 
-**This project is licensed under the MIT License — free to use, modify, and distribute. See the LICENSE file for details.**
+## 📄 License
+This project is licensed under standard open-source terms. See the LICENSE file for details.
 
 ## 💬 Author
 

@@ -15,3 +15,7 @@ Thumbs.db
 # Application specific
 temp/
 *.pdf
+
+dist/
+build/
+*.spec
