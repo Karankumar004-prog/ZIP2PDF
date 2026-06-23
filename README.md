@@ -48,7 +48,7 @@ A sleek, lightweight Linux desktop utility designed to effortlessly extract ZIP 
 ## 🚀 Installation & Setup
 ### Option 1: Run from Source
 
-### 1️⃣ Clone the Repository**
+### 1️⃣ Clone the Repository
 ```sh
 git clone [https://github.com/Karankumar004-prog/ZIP2PDF.git](https://github.com/Karankumar004-prog/ZIP2PDF.git)
 cd ZIP2PDF
