@@ -48,7 +48,7 @@ A sleek, lightweight Linux desktop utility designed to effortlessly extract ZIP 
 ## 🚀 Installation & Setup
 ### Option 1: Run from Source
 
-**1. Clone the Repository**
+### 1️⃣ Clone the Repository**
 ```sh
 git clone [https://github.com/Karankumar004-prog/ZIP2PDF.git](https://github.com/Karankumar004-prog/ZIP2PDF.git)
 cd ZIP2PDF
@@ -117,13 +117,13 @@ pyinstaller --onefile --windowed --name ZIP2PDF main.py
 ## 🖥️ Desktop Integration (Linux)
 To add ZIP2PDF to your GNOME or KDE application menu:
 
-1. Move the compiled ZIP2PDF executable to your desired permanent folder.
+### 1️⃣ Move the compiled ZIP2PDF executable to your desired permanent folder.
 
-2. Create a desktop entry:
+### 2️⃣ Create a desktop entry:
 ```bash
 nano ~/.local/share/applications/zip2pdf.desktop
 ```
-3. Paste the following configuration (update paths accordingly):
+### 3️⃣ Paste the following configuration (update paths accordingly):
 ```Ini,TOML
 [Desktop Entry]
 Version=1.0
@@ -135,24 +135,24 @@ Icon=/path/to/your/icons/image.png
 Terminal=false
 Categories=Utility;Office;
 ```
-4. Update the desktop database:
+### 4️⃣ Update the desktop database:
 ```bash
 update-desktop-database ~/.local/share/applications/
 ```
 ## Making an Excectuable permanent application
 
-1. Move the Executable to a Permanent Home
+### 1️⃣ Move the Executable to a Permanent Home
 In Linux, user-specific applications belong in ~/.local/bin/. Run this command to move your newly built app there:
 ```bash
 mkdir -p ~/.local/bin
 mv "/path/to/your/ZIP2PDF/dist/ZIP2PDF" ~/.local/bin/zip2pdf
 ```
-2. Update the Desktop Shortcut
+### 2️⃣ Update the Desktop Shortcut
 Now, you just need to tell your Fedora menu where the app moved to. Open your ~/.local/share/applications/zip2pdf.desktop file and update the Exec line to point to the new location:
 ```Ini,TOML
 Exec=/home/mrwhite/.local/bin/zip2pdf
 ```
-3. Clean Up Your Project
+### 3️⃣ Clean Up Your Project
 Now you are completely safe to run your cleanup command in your project folder:
 ```bash
 rm -rf dist/ build/ __pycache__/ *.spec
